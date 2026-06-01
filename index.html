@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Wall</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div class="app">
+
+    <!-- Top bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="logo">the wall</span>
+        <span class="doc-name" id="doc-name"></span>
+      </div>
+      <div class="topbar-center">
+        <textarea id="text-input" placeholder="Paste text or describe a topic…" rows="1"></textarea>
+        <button class="btn-primary" id="gen-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/></svg>
+          Generate
+        </button>
+        <span class="or">or</span>
+        <label class="btn-upload" id="upload-label">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Upload PDF
+          <input type="file" id="pdf-input" accept=".pdf" hidden />
+        </label>
+      </div>
+      <div class="topbar-right">
+        <div class="filter-pills" id="filter-pills"></div>
+        <button class="btn-icon" id="zoom-in" title="Zoom in">+</button>
+        <button class="btn-icon" id="zoom-out" title="Zoom out">−</button>
+        <button class="btn-icon" id="reset-btn" title="Reset view">⊙</button>
+      </div>
+    </header>
+
+    <!-- Canvas -->
+    <main class="canvas-wrap" id="canvas-wrap">
+      <div class="canvas" id="canvas"></div>
+      <div class="hint" id="hint">Enter a topic or upload a PDF to generate your wall</div>
+    </main>
+
+    <!-- Explain panel (slides in from right) -->
+    <aside class="explain-panel" id="explain-panel">
+      <div class="explain-header">
+        <span class="explain-title" id="explain-title"></span>
+        <button class="btn-icon" id="explain-close">✕</button>
+      </div>
+      <div class="explain-body" id="explain-body"></div>
+    </aside>
+
+    <!-- Loading overlay -->
+    <div class="loading-overlay" id="loading-overlay">
+      <div class="loading-box">
+        <div class="spinner"></div>
+        <p id="loading-msg">Reading document…</p>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="wall.js"></script>
+</body>
+</html>
