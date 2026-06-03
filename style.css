@@ -117,11 +117,11 @@ textarea#text-input:focus { outline: none; border-color: var(--text3); }
 
 /* ── Cards ── */
 .card {
-  position: absolute; width: 192px;
+  position: absolute; width: 200px;
   background: var(--bg);
   border: 0.5px solid var(--border);
   border-radius: var(--radius);
-  padding: 13px 15px;
+  padding: 14px 16px;
   cursor: pointer;
   transition: border-color 0.15s, transform 0.1s;
 }
@@ -140,18 +140,8 @@ textarea#text-input:focus { outline: none; border-color: var(--text3); }
 }
 .card-explain:hover { background: var(--bg2); color: var(--text2); }
 
-/* ── Card type colors ── */
-.type-concept    { border-left: 3px solid #7F77DD; border-radius: 0 var(--radius) var(--radius) 0; }
-.type-definition { border-left: 3px solid #EF9F27; border-radius: 0 var(--radius) var(--radius) 0; }
-.type-example    { border-left: 3px solid #1D9E75; border-radius: 0 var(--radius) var(--radius) 0; }
-.type-warning    { border-left: 3px solid #E24B4A; border-radius: 0 var(--radius) var(--radius) 0; }
-.type-quote      { border-left: 3px solid #888780; border-radius: 0 var(--radius) var(--radius) 0; }
-
-.label-concept    { color: #534AB7; }
-.label-definition { color: #854F0B; }
-.label-example    { color: #0F6E56; }
-.label-warning    { color: #A32D2D; }
-.label-quote      { color: #5F5E5A; }
+/* ── Card type accent — applied dynamically via JS ── */
+.card-accent { border-radius: 0 var(--radius) var(--radius) 0; }
 
 /* ── Explain panel ── */
 .explain-panel {
