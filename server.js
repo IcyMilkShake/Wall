@@ -27,75 +27,118 @@ async function extractText(filePath) {
 }
 
 // ─── Step 2: Categorize topics + relationships ────────────────────────────────
+// ─── Step 2: Categorize topics + relationships ────────────────────────────────
 async function categorizeTopics(text) {
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    max_tokens: 2500,
+    model: "gpt-5.4-nano",
+    max_completion_tokens: 6000,
     messages: [
       {
         role: "system",
-        content: `You are a document understanding tool. Read the text and extract 8-14 of the most important ideas. Organize them into a strict 3-level tree:
+        content: `You are a document understanding tool. Read the text and organize the key ideas into a clear 3-level tree that best helps someone understand the full topic.
 
-LEVELS:
-- main: 1-2 cards. The single most important overarching concept in the document. Everything else branches from here.
-- sub: 3-5 cards. Key ideas that directly branch from a main idea. Each sub card must have exactly one main card as its parent.
-- detail: 4-7 cards. Specific facts, examples, or elaborations. Each detail card must have exactly one sub card as its parent.
+Your goal is to cover the material properly without artificial limits:
+- If there are many distinct important concepts, create more main cards (4, 5, 6+ is fine).
+- If a main concept has many sub-topics, create as many sub cards as needed (15+ is okay if they are distinct and useful).
+- If a sub needs many details, create as many detail cards as needed.
+
+Do NOT force everything under few main cards. It is better to have more mains or more subs when the topic has many separate important parts.
+
+Rules:
+- Every card must add real value.
+- Never repeat information.
+- Keep the structure logical.
+- Only create genuinely useful cards.
 
 For each card return:
 - level: "main", "sub", or "detail"
-- type: a short 1-word label for the kind of idea (e.g. concept, process, example, warning, definition, fact, cause, effect)
-- title: 2-5 words, unique — used as the card ID in relatedTo
-- raw: 1-2 sentences of key information from the source
-- relatedTo: array containing ONLY the title of this card's direct parent. main cards have empty []. sub cards list their 1 parent main. detail cards list their 1 parent sub. Never link sideways or skip levels.
+- type: short 1-word label (concept, process, example, warning, definition, fact, formula, etc.)
+- title: 2-5 words, unique
+- raw: 1-3 sentences. Use [[formula]]...[[/formula]] for any equations (with proper LaTeX inside).
+- relatedTo: array with only the direct parent's title (empty for mains).
 
-Return ONLY a valid JSON array. No markdown, no backticks, no preamble.
-
-Example for a document about photosynthesis:
-[
-  {"level":"main","type":"concept","title":"Photosynthesis","raw":"Plants convert sunlight into glucose using water and CO2.","relatedTo":[]},
-  {"level":"sub","type":"process","title":"Light Reactions","raw":"Chlorophyll absorbs sunlight and splits water molecules.","relatedTo":["Photosynthesis"]},
-  {"level":"sub","type":"process","title":"Calvin Cycle","raw":"CO2 is fixed into glucose using ATP from light reactions.","relatedTo":["Photosynthesis"]},
-  {"level":"detail","type":"fact","title":"Oxygen as Byproduct","raw":"Oxygen is released when water molecules are split.","relatedTo":["Light Reactions"]},
-  {"level":"detail","type":"fact","title":"Glucose Storage","raw":"Glucose produced is stored as starch or used for energy.","relatedTo":["Calvin Cycle"]}
-]`,
+Return ONLY a valid JSON array.`,
       },
       { role: "user", content: text.slice(0, 12000) },
     ],
   });
 
+  // ... (keep your existing robust JSON cleaning + formula restoration code here)
   const raw = response.choices[0].message.content.trim();
-  return JSON.parse(raw.replace(/```json|```/g, "").trim());
-}
+  let cleaned = raw.replace(/```json|```/g, '').trim();
 
+  const formulaBlocks = [];
+  cleaned = cleaned.replace(/\[\[formula\]\]([\s\S]*?)\[\[\/formula\]\]/g, (_, inner) => {
+    const normalized = inner.replace(/\\\\/g, '\\');
+    formulaBlocks.push(normalized);
+    return `__FORMULA_${formulaBlocks.length - 1}__`;
+  });
+
+  let topics;
+  try {
+    topics = JSON.parse(cleaned);
+  } catch (e) {
+    const safeJson = cleaned.replace(/"([^"]*)"/g, (m, inner) =>
+      '"' + inner.replace(/(?<!\\)\\/g, '\\\\') + '"'
+    );
+    topics = JSON.parse(safeJson);
+  }
+
+  if (Array.isArray(topics)) {
+    topics.forEach(card => {
+      if (card?.raw?.includes('__FORMULA_')) {
+        card.raw = card.raw.replace(/__FORMULA_(\d+)__/g, (_, idx) =>
+          `[[formula]]${formulaBlocks[parseInt(idx)] || ''}[[/formula]]`
+        );
+      }
+    });
+  }
+  return topics;
+}
 // ─── Step 3: Summarize each card in plain English ────────────────────────────
 async function summarizeCards(topics) {
   const summaries = await Promise.all(
     topics.map(async (topic) => {
+      const hasFormula = (topic.raw || '').includes('[[formula]]');
+
       const response = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
-        max_tokens: 200,
+        model: "gpt-5.4-nano",
+        max_completion_tokens: 250,
         messages: [
           {
             role: "system",
             content: `You explain things to someone with zero background knowledge.
-Write exactly 2 plain English sentences about the topic below.
-Be specific and concrete. No jargon. No markdown.
-If the topic has related ideas listed, naturally weave in a brief mention of how it connects to one of them — but only if it fits the sentence naturally. Do not force it.
-Return only the 2 sentences, nothing else.`,
+Write exactly 2 plain English sentences.
+
+CRITICAL INSTRUCTIONS:
+- If the Context contains a [[formula]]...[[/formula]] block, you MUST copy that exact block (tags + LaTeX) into one of the sentences. Never rewrite or remove it.
+- You may explain how to use the formula if it makes the explanation clearer.
+- Keep everything to exactly 2 sentences. No extra text.
+
+Example of good output for a quadratic formula card:
+"The quadratic formula finds the solutions to any equation in the form ax² + bx + c = 0. Plug the coefficients into [[formula]]x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}[[/formula]] to get the two possible values of x."
+
+Return only the two sentences.`,
           },
           {
             role: "user",
-            content: `Topic: ${topic.title}\nContext: ${topic.raw}\nRelated to: ${(topic.relatedTo || []).join(', ') || 'none'}`,
+            content: `Topic: ${topic.title}\nContext: ${topic.raw}\nRelated to: ${Array.isArray(topic.relatedTo) ? topic.relatedTo.join(', ') : 'none'}`,
           },
         ],
       });
+
+      let summary = response.choices[0].message.content.trim();
+
+      if (hasFormula && !summary.includes('[[formula]]')) {
+        summary = topic.raw;
+      }
 
       return {
         level: topic.level,
         type: topic.type,
         title: topic.title,
-        summary: response.choices[0].message.content.trim(),
-        relatedTo: (topic.relatedTo || []).slice(0, 2), // hard cap at 3
+        summary,
+        relatedTo: Array.isArray(topic.relatedTo) ? topic.relatedTo.slice(0, 2) : [],
       };
     })
   );
@@ -167,8 +210,8 @@ app.post("/api/explain", async (req, res) => {
   if (!title) return res.status(400).json({ error: "No title provided" });
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      max_tokens: 400,
+      model: "gpt-5.4-nano",
+      max_completion_tokens: 400,
       messages: [
         {
           role: "system",

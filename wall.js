@@ -83,6 +83,25 @@ const PALETTE = [
 
 let TYPE_META = {};
 
+// ─── Formula rendering ────────────────────────────────────────────────────────
+function renderSummary(text) {
+  if (!text) return '';
+  const parts = text.split(/(\[\[formula\]\][\s\S]*?\[\[\/formula\]\])/g);
+  return parts.map(part => {
+    const match = part.match(/^\[\[formula\]\]([\s\S]*?)\[\[\/formula\]\]$/);
+    if (match) {
+      const latex = match[1].trim();
+      try {
+        return katex.renderToString(latex, { throwOnError: false, displayMode: false });
+      } catch (e) {
+        return `<code class="formula-fallback">${latex}</code>`;
+      }
+    }
+    // Escape HTML for plain text parts
+    return part.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }).join('');
+}
+
 function buildTypeMeta(cards) {
   const types = [...new Set(cards.map(c => c.type))];
   TYPE_META = {};
@@ -129,7 +148,6 @@ function scatterPositions(cards) {
   });
 
   // ── Place subs radially around their parent main ──
-  const SUB_RADIUS = 420;
   const subsByParent = {};
   subs.forEach(card => {
     const parent = (card.relatedTo || [])[0] || (mains[0]?.title || '__none__');
@@ -140,13 +158,15 @@ function scatterPositions(cards) {
   Object.entries(subsByParent).forEach(([parentTitle, group]) => {
     const parentCenter = posMap[parentTitle] || { cx: CX, cy: CY };
     const count = group.length;
+
+    // Dynamic radius: more siblings → larger circle to reduce overlap
+    const baseRadius = 380 + Math.min(count * 18, 160);
     group.forEach((card, i) => {
       const angle = (2 * Math.PI * i / count) - Math.PI / 2;
-      // Add radius jitter so subs aren't perfectly equidistant
       const h = hash(card.title);
-      const rJitter = ((h & 0xFF) / 255 - 0.5) * 80;
-      const aJitter = (((h >> 8) & 0xFF) / 255 - 0.5) * 0.25;
-      const r = SUB_RADIUS + rJitter;
+      const rJitter = ((h & 0xFF) / 255 - 0.5) * 70;
+      const aJitter = (((h >> 8) & 0xFF) / 255 - 0.5) * 0.22;
+      const r = baseRadius + rJitter;
       const cx = parentCenter.cx + r * Math.cos(angle + aJitter);
       const cy = parentCenter.cy + r * Math.sin(angle + aJitter);
       posMap[card.title] = { cx, cy };
@@ -155,7 +175,6 @@ function scatterPositions(cards) {
   });
 
   // ── Place details radially around their parent sub ──
-  const DETAIL_RADIUS = 300;
   const detailsByParent = {};
   details.forEach(card => {
     const parent = (card.relatedTo || [])[0] || '__none__';
@@ -168,20 +187,21 @@ function scatterPositions(cards) {
     if (!parentCenter) return;
     const mainCenter = posMap[mains[0]?.title] || { cx: CX, cy: CY };
 
-    // Angle away from main center so details fan outward
     const baseAngle = Math.atan2(parentCenter.cy - mainCenter.cy, parentCenter.cx - mainCenter.cx);
-    const spread = Math.PI * 0.55; // how wide the fan is
+    const spread = Math.PI * 0.6;
     const count = group.length;
+
+    // Dynamic radius for details too
+    const baseRadius = 280 + Math.min(count * 22, 140);
 
     group.forEach((card, i) => {
       const baseA = count === 1
         ? baseAngle
         : baseAngle - spread / 2 + (spread / (count - 1)) * i;
-      // Jitter radius and angle so details feel scattered, not lined up
       const h = hash(card.title);
-      const rJitter = ((h & 0xFF) / 255 - 0.5) * 100;
-      const aJitter = (((h >> 8) & 0xFF) / 255 - 0.5) * 0.35;
-      const r = DETAIL_RADIUS + rJitter;
+      const rJitter = ((h & 0xFF) / 255 - 0.5) * 90;
+      const aJitter = (((h >> 8) & 0xFF) / 255 - 0.5) * 0.32;
+      const r = baseRadius + rJitter;
       const cx = parentCenter.cx + r * Math.cos(baseA + aJitter);
       const cy = parentCenter.cy + r * Math.sin(baseA + aJitter);
       posMap[card.title] = { cx, cy };
@@ -302,7 +322,7 @@ function makeCardEl(card) {
   el.innerHTML = `
     <div class="card-type" style="color:${meta.color};font-size:${card.level === 'main' ? '11px' : '10px'}">${meta.label} · ${card.level || ''}</div>
     <div class="card-title" style="font-size:${card.level === 'main' ? '14px' : card.level === 'sub' ? '13px' : '12px'}">${card.title}</div>
-    <div class="card-body">${card.summary}</div>
+    <div class="card-body formula-body">${renderSummary(card.summary)}</div>
     <button class="card-explain">✦ Explain more</button>
   `;
   el.addEventListener('mouseenter', () => {
