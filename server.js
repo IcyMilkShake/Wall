@@ -27,35 +27,35 @@ async function extractText(filePath) {
 }
 
 // ─── Step 2: Categorize topics + relationships ────────────────────────────────
-// ─── Step 2: Categorize topics + relationships ────────────────────────────────
 async function categorizeTopics(text) {
   const response = await openai.chat.completions.create({
-    model: "gpt-5.4-nano",
+    model: "gpt-5.4-mini-2026-03-17",
     max_completion_tokens: 6000,
     messages: [
       {
         role: "system",
         content: `You are a document understanding tool. Read the text and organize the key ideas into a clear 3-level tree that best helps someone understand the full topic.
 
-Your goal is to cover the material properly without artificial limits:
-- If there are many distinct important concepts, create more main cards (4, 5, 6+ is fine).
-- If a main concept has many sub-topics, create as many sub cards as needed (15+ is okay if they are distinct and useful).
-- If a sub needs many details, create as many detail cards as needed.
-
-Do NOT force everything under few main cards. It is better to have more mains or more subs when the topic has many separate important parts.
+Target size (soft guideline):
+- Aim for roughly 5–10 cards in total for most topics. This is the sweet spot for a clean, readable mindmap.
+- You can go beyond 10 cards (even 20+) when the topic is genuinely rich and has many distinct important parts — but only do so if it meaningfully improves understanding.
+- When there are many separate concepts, prefer creating additional main cards instead of overloading one main branch with too many subs.
 
 Rules:
-- Every card must add real value.
-- Never repeat information.
-- Keep the structure logical.
-- Only create genuinely useful cards.
+- Every card MUST add real value. Never repeat information.
+- Keep titles short and clear (2–5 words).
+- Use [[formula]]...[[/formula]] with proper LaTeX inside for any equations or formulas.
+- relatedTo should contain the direct parent. 
+  You MAY also add other cards (from any branch) if they have a meaningful relationship that helps understanding (e.g. a sub from one main can relate to a detail from another main).
+  Do not add weak or unnecessary connections.
+- Always try to create sub cards to link with main cards. Prioritize linking main cards than creating new ones, but standalone main cards are not prohibited.
 
 For each card return:
 - level: "main", "sub", or "detail"
-- type: short 1-word label (concept, process, example, warning, definition, fact, formula, etc.)
+- type: short 1-word label (concept, process, example, warning, definition, fact, formula, etc.) according to the topic. Try not to create too much types as it may get confusing.
 - title: 2-5 words, unique
 - raw: 1-3 sentences. Use [[formula]]...[[/formula]] for any equations (with proper LaTeX inside).
-- relatedTo: array with only the direct parent's title (empty for mains).
+- relatedTo: array of related card titles (can include the direct parent + other relevant cards from different branches).
 
 Return ONLY a valid JSON array.`,
       },
@@ -102,7 +102,7 @@ async function summarizeCards(topics) {
       const hasFormula = (topic.raw || '').includes('[[formula]]');
 
       const response = await openai.chat.completions.create({
-        model: "gpt-5.4-nano",
+        model: "gpt-5.4-mini-2026-03-17",
         max_completion_tokens: 250,
         messages: [
           {
@@ -111,12 +111,13 @@ async function summarizeCards(topics) {
 Write exactly 2 plain English sentences.
 
 CRITICAL INSTRUCTIONS:
-- If the Context contains a [[formula]]...[[/formula]] block, you MUST copy that exact block (tags + LaTeX) into one of the sentences. Never rewrite or remove it.
+- If the Context contains a [[formula]]...[[/formula]] block, you MUST copy that exact block (including the [[formula]] and [[/formula]] tags) into one of your sentences. Never remove it or rewrite the LaTeX.
+- Never output Unicode math symbols (like α, β, ∣0⟩, etc.). Always keep the original [[formula]] block.
 - You may explain how to use the formula if it makes the explanation clearer.
 - Keep everything to exactly 2 sentences. No extra text.
 
-Example of good output for a quadratic formula card:
-"The quadratic formula finds the solutions to any equation in the form ax² + bx + c = 0. Plug the coefficients into [[formula]]x = \\frac{-b \\pm \\sqrt{b^2 - 4ac}}{2a}[[/formula]] to get the two possible values of x."
+Example of good output:
+"The qubit can be in a superposition of both states at once. This is written as [[formula]]\\alpha |0\\rangle + \\beta |1\\rangle[[/formula]] and the values of alpha and beta represent the probabilities."
 
 Return only the two sentences.`,
           },
@@ -168,7 +169,7 @@ function trimConnections(cards) {
     }
 
     // fallback
-    return { ...card, relatedTo: (card.relatedTo || []).filter(t => titleSet.has(t)).slice(0, 2) };
+    return { ...card, relatedTo: (card.relatedTo || []).filter(t => titleSet.has(t)).slice(0, 4) };
   });
 }
 
@@ -210,7 +211,7 @@ app.post("/api/explain", async (req, res) => {
   if (!title) return res.status(400).json({ error: "No title provided" });
   try {
     const response = await openai.chat.completions.create({
-      model: "gpt-5.4-nano",
+      model: "gpt-5.4-mini-2026-03-17",
       max_completion_tokens: 400,
       messages: [
         {

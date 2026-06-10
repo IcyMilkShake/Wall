@@ -129,25 +129,30 @@ function scatterPositions(cards) {
   const rest    = cards.filter(c => !['main','sub','detail'].includes(c.level));
 
   const positioned = [];
-  const posMap = {}; // title -> center {x, y}
+  const posMap = {};
 
   const MAIN_W = 230, SUB_W = 200, DETAIL_W = 178;
   const MAIN_H = 160, SUB_H = 150, DETAIL_H = 140;
 
-  // ── Center of canvas ──
   const CX = 900, CY = 700;
 
-  // ── Place mains in center (side by side if >1) ──
-  const mainGap = 260;
-  mains.forEach((card, i) => {
-    const offset = (i - (mains.length - 1) / 2) * mainGap;
-    const x = CX + offset - MAIN_W / 2;
-    const y = CY - MAIN_H / 2;
-    posMap[card.title] = { cx: CX + offset, cy: CY };
-    positioned.push({ ...card, x, y });
-  });
+  // === MAINS ===
+const mainGap = 1000;
+mains.forEach((card, i) => {
+  const baseOffset = (i - (mains.length - 1) / 2) * mainGap;
 
-  // ── Place subs radially around their parent main ──
+  // Add 2D jitter so they don't line up perfectly
+  const xJitter = (hash(card.title + "x") % 180) - 90;
+  const yJitter = (hash(card.title + "y") % 160) - 80;
+
+  const x = CX + baseOffset - MAIN_W / 2 + xJitter;
+  const y = CY - MAIN_H / 2 + yJitter;
+
+  posMap[card.title] = { cx: CX + baseOffset + xJitter, cy: CY + yJitter };
+  positioned.push({ ...card, x, y });
+});
+
+  // === SUBS ===
   const subsByParent = {};
   subs.forEach(card => {
     const parent = (card.relatedTo || [])[0] || (mains[0]?.title || '__none__');
@@ -159,22 +164,25 @@ function scatterPositions(cards) {
     const parentCenter = posMap[parentTitle] || { cx: CX, cy: CY };
     const count = group.length;
 
-    // Dynamic radius: more siblings → larger circle to reduce overlap
-    const baseRadius = 380 + Math.min(count * 18, 160);
+    const baseRadius = 430 + Math.min(count * 33, 290);
+
     group.forEach((card, i) => {
       const angle = (2 * Math.PI * i / count) - Math.PI / 2;
+
       const h = hash(card.title);
-      const rJitter = ((h & 0xFF) / 255 - 0.5) * 70;
-      const aJitter = (((h >> 8) & 0xFF) / 255 - 0.5) * 0.22;
+      const rJitter = ((h & 0xFF) / 255 - 0.5) * 155;
+      const aJitter = (((h >> 8) & 0xFF) / 255 - 0.5) * 0.42;
+
       const r = baseRadius + rJitter;
       const cx = parentCenter.cx + r * Math.cos(angle + aJitter);
       const cy = parentCenter.cy + r * Math.sin(angle + aJitter);
+
       posMap[card.title] = { cx, cy };
       positioned.push({ ...card, x: cx - SUB_W / 2, y: cy - SUB_H / 2 });
     });
   });
 
-  // ── Place details radially around their parent sub ──
+  // === DETAILS ===
   const detailsByParent = {};
   details.forEach(card => {
     const parent = (card.relatedTo || [])[0] || '__none__';
@@ -185,33 +193,63 @@ function scatterPositions(cards) {
   Object.entries(detailsByParent).forEach(([parentTitle, group]) => {
     const parentCenter = posMap[parentTitle];
     if (!parentCenter) return;
+
     const mainCenter = posMap[mains[0]?.title] || { cx: CX, cy: CY };
-
     const baseAngle = Math.atan2(parentCenter.cy - mainCenter.cy, parentCenter.cx - mainCenter.cx);
-    const spread = Math.PI * 0.6;
-    const count = group.length;
 
-    // Dynamic radius for details too
-    const baseRadius = 280 + Math.min(count * 22, 140);
+    const count = group.length;
+    const spread = Math.PI * 0.78;
+
+    const baseRadius = 330 + Math.min(count * 36, 300);
 
     group.forEach((card, i) => {
-      const baseA = count === 1
-        ? baseAngle
-        : baseAngle - spread / 2 + (spread / (count - 1)) * i;
+      const t = count === 1 ? 0.5 : i / (count - 1);
+      const baseA = baseAngle - spread / 2 + spread * t;
+
       const h = hash(card.title);
-      const rJitter = ((h & 0xFF) / 255 - 0.5) * 90;
-      const aJitter = (((h >> 8) & 0xFF) / 255 - 0.5) * 0.32;
+      const rJitter = ((h & 0xFF) / 255 - 0.5) * 170;
+      const aJitter = (((h >> 8) & 0xFF) / 255 - 0.5) * 0.52;
+
       const r = baseRadius + rJitter;
       const cx = parentCenter.cx + r * Math.cos(baseA + aJitter);
       const cy = parentCenter.cy + r * Math.sin(baseA + aJitter);
+
       posMap[card.title] = { cx, cy };
       positioned.push({ ...card, x: cx - DETAIL_W / 2, y: cy - DETAIL_H / 2 });
     });
   });
 
+  // === Repulsion (balanced) ===
+  const iterations = 22;
+  const minDist = 210;
+
+  for (let iter = 0; iter < iterations; iter++) {
+    for (let i = 0; i < positioned.length; i++) {
+      for (let j = i + 1; j < positioned.length; j++) {
+        const a = positioned[i];
+        const b = positioned[j];
+
+        const dx = (a.x + a.w / 2) - (b.x + b.w / 2);
+        const dy = (a.y + a.h / 2) - (b.y + b.h / 2);
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < minDist && dist > 1) {
+          const force = (minDist - dist) / dist * 0.65;
+          const fx = dx * force;
+          const fy = dy * force;
+
+          a.x += fx * 0.5;
+          a.y += fy * 0.5;
+          b.x -= fx * 0.5;
+          b.y -= fy * 0.5;
+        }
+      }
+    }
+  }
+
   // Fallback
   rest.forEach((card, i) => {
-    positioned.push({ ...card, x: 100 + (i % 4) * 260, y: 1400 + Math.floor(i / 4) * 260 });
+    positioned.push({ ...card, x: 100 + (i % 4) * 280, y: 1500 + Math.floor(i / 4) * 280 });
   });
 
   return positioned;
