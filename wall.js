@@ -30,15 +30,29 @@ function applyT() {
 applyT();
 
 function centerOnMain() {
-  // Find main card position and center the viewport on it
-  const main = allCards.find(c => c.level === 'main');
-  if (!main) return;
-  const pos = placedCache.find(c => c.title === main.title);
-  if (!pos) return;
+  if (placedCache.length === 0) return;
   const rect = wrap.getBoundingClientRect();
-  const CX = 900, CY = 700; // matches layout center
-  ox = rect.width / 2 - CX * scale;
-  oy = rect.height / 2 - CY * scale;
+
+  // Compute bounding box of all placed cards
+  const minX = Math.min(...placedCache.map(c => c.x));
+  const minY = Math.min(...placedCache.map(c => c.y));
+  const maxX = Math.max(...placedCache.map(c => c.x + (c.w || CARD_W)));
+  const maxY = Math.max(...placedCache.map(c => c.y + (c.h || 160)));
+
+  const contentW = maxX - minX;
+  const contentH = maxY - minY;
+
+  // Fit to viewport with padding
+  const PAD = 80;
+  const fitScale = Math.min(
+    (rect.width - PAD * 2) / contentW,
+    (rect.height - PAD * 2) / contentH,
+    1.0
+  );
+  scale = Math.max(0.25, fitScale);
+
+  ox = (rect.width - contentW * scale) / 2 - minX * scale;
+  oy = (rect.height - contentH * scale) / 2 - minY * scale;
   applyT();
 }
 
@@ -72,7 +86,7 @@ wrap.addEventListener('wheel', e => {
   applyT();
 }, { passive: false });
 
-document.getElementById('reset-btn').onclick = () => { scale = 0.72; ox = 0; oy = 0; applyT(); centerOnMain(); };
+document.getElementById('reset-btn').onclick = () => { centerOnMain(); };
 
 // ─── Card type config — built dynamically ────────────────────────────────────
 const PALETTE = [
@@ -113,8 +127,12 @@ function buildTypeMeta(cards) {
   });
 }
 
-// ─── Layout — tree-based positioning ─────────────────────────────────────────
+// ─── Layout — radial placement + angle-based collision resolution ─────────────
 const CARD_W = 200;
+const MAIN_W = 230, SUB_W = 200, DETAIL_W = 178;
+
+// Padding used only for collision detection — rectangular, scales with card height
+const PADDING = 30;
 
 function hash(str) {
   let h = 0;
@@ -122,6 +140,27 @@ function hash(str) {
   return h;
 }
 
+// AABB overlap test using real w/h + rectangular padding
+function overlaps(a, b) {
+  const pad = PADDING;
+  return (
+    a.x         < b.x + b.w + pad &&
+    a.x + a.w + pad > b.x         &&
+    a.y         < b.y + b.h + pad &&
+    a.y + a.h + pad > b.y
+  );
+}
+
+// Check card c against all cards in the `placed` array (by index up to `count`)
+function overlapsAny(c, placed, count) {
+  for (let i = 0; i < count; i++) {
+    if (placed[i] === c) continue;
+    if (overlaps(c, placed[i])) return true;
+  }
+  return false;
+}
+
+// ── Phase 1: radial placement (stores angle on every card) ───────────────────
 function scatterPositions(cards) {
   const mains   = cards.filter(c => c.level === 'main');
   const subs    = cards.filter(c => c.level === 'sub');
@@ -129,30 +168,45 @@ function scatterPositions(cards) {
   const rest    = cards.filter(c => !['main','sub','detail'].includes(c.level));
 
   const positioned = [];
-  const posMap = {};
+  const posMap = {};  // title -> { cx, cy }
 
-  const MAIN_W = 230, SUB_W = 200, DETAIL_W = 178;
-  const MAIN_H = 160, SUB_H = 150, DETAIL_H = 140;
+  // 1. Compact horizontal placement for mains (packed close together)
+  // We deliberately start them tight so the layout feels dense instead of spread out.
+  const CY_BASE = 520;
+  let curX = 60;                    // left margin
+  const MAIN_GAP = 300;              // gap between edges of adjacent mains (resolver will push if needed)
 
-  const CX = 900, CY = 700;
+  const mainClusters = mains.map(main => {
+    const subsCount = subs.filter(s => (s.relatedTo || [])[0] === main.title).length;
+    const detailsCount = details.filter(d => {
+      const ps = subs.find(s => s.title === (d.relatedTo || [])[0]);
+      return ps && (ps.relatedTo || [])[0] === main.title;
+    }).length;
+    const weight = 1 + subsCount * 1.2 + detailsCount * 0.6;
+    return { main, weight: Math.max(weight, 1.5), subsCount };
+  });
 
-  // === MAINS ===
-const mainGap = 1000;
-mains.forEach((card, i) => {
-  const baseOffset = (i - (mains.length - 1) / 2) * mainGap;
+  mainClusters.forEach(cluster => {
+    const h = hash(cluster.main.title);
+    const yRange = 140 - Math.min(cluster.subsCount * 14, 90);
+    const yOff = ((h % 1000) / 1000 - 0.5) * yRange;
 
-  // Add 2D jitter so they don't line up perfectly
-  const xJitter = (hash(card.title + "x") % 180) - 90;
-  const yJitter = (hash(card.title + "y") % 160) - 80;
+    const cx = curX + MAIN_W / 2;
+    const cy = CY_BASE + yOff;
 
-  const x = CX + baseOffset - MAIN_W / 2 + xJitter;
-  const y = CY - MAIN_H / 2 + yJitter;
+    posMap[cluster.main.title] = { cx, cy };
+    positioned.push({
+      ...cluster.main,
+      x: cx - MAIN_W / 2,
+      y: cy - 82,
+      w: MAIN_W,
+      h: 170,
+      angle: 0,
+    });
+    curX += MAIN_W + MAIN_GAP;
+  });
 
-  posMap[card.title] = { cx: CX + baseOffset + xJitter, cy: CY + yJitter };
-  positioned.push({ ...card, x, y });
-});
-
-  // === SUBS ===
+  // 2. Subs orbit their main — full 360° with strong jitter so they actually scatter
   const subsByParent = {};
   subs.forEach(card => {
     const parent = (card.relatedTo || [])[0] || (mains[0]?.title || '__none__');
@@ -161,28 +215,40 @@ mains.forEach((card, i) => {
   });
 
   Object.entries(subsByParent).forEach(([parentTitle, group]) => {
-    const parentCenter = posMap[parentTitle] || { cx: CX, cy: CY };
+    const pc = posMap[parentTitle] || { cx: 200, cy: CY_BASE };
     const count = group.length;
+    const baseRadius = 310 + count * 38;
+    const arcSpread = Math.PI * 2;
 
-    const baseRadius = 430 + Math.min(count * 33, 290);
+    // Random starting angle so the pattern doesn't always align to axes
+    const startAngle = ((hash(parentTitle + 'ang') % 628) / 100) - Math.PI;
 
     group.forEach((card, i) => {
-      const angle = (2 * Math.PI * i / count) - Math.PI / 2;
+      const t = count === 1 ? 0.5 : i / count;
+      const baseAngle = startAngle + arcSpread * t;
 
       const h = hash(card.title);
-      const rJitter = ((h & 0xFF) / 255 - 0.5) * 155;
-      const aJitter = (((h >> 8) & 0xFF) / 255 - 0.5) * 0.42;
+      const rJitter = ((h & 0xFF) / 255 - 0.5) * 150;
+      const aJitter = (((h >> 8) & 0xFF) / 255 - 0.5) * 1.1; // stronger jitter to break cross patterns
+      const angle   = baseAngle + aJitter;
+      const r       = baseRadius + rJitter;
 
-      const r = baseRadius + rJitter;
-      const cx = parentCenter.cx + r * Math.cos(angle + aJitter);
-      const cy = parentCenter.cy + r * Math.sin(angle + aJitter);
+      const cx = pc.cx + r * Math.cos(angle);
+      const cy = pc.cy + r * Math.sin(angle);
 
       posMap[card.title] = { cx, cy };
-      positioned.push({ ...card, x: cx - SUB_W / 2, y: cy - SUB_H / 2 });
+      positioned.push({
+        ...card,
+        x: cx - SUB_W / 2,
+        y: cy - 77,
+        w: SUB_W,
+        h: 155,
+        angle,
+      });
     });
   });
 
-  // === DETAILS ===
+  // 3. Details orbit their sub — now full 180° outward spread + stronger jitter
   const detailsByParent = {};
   details.forEach(card => {
     const parent = (card.relatedTo || [])[0] || '__none__';
@@ -191,68 +257,116 @@ mains.forEach((card, i) => {
   });
 
   Object.entries(detailsByParent).forEach(([parentTitle, group]) => {
-    const parentCenter = posMap[parentTitle];
-    if (!parentCenter) return;
+    const pc = posMap[parentTitle];
+    if (!pc) return;
 
-    const mainCenter = posMap[mains[0]?.title] || { cx: CX, cy: CY };
-    const baseAngle = Math.atan2(parentCenter.cy - mainCenter.cy, parentCenter.cx - mainCenter.cx);
+    const parentSub  = subs.find(s => s.title === parentTitle);
+    const mainTitle  = parentSub ? (parentSub.relatedTo || [])[0] : null;
+    const mc         = mainTitle ? posMap[mainTitle] : null;
+
+    const outward = mc
+      ? Math.atan2(pc.cy - mc.cy, pc.cx - mc.cx)
+      : Math.atan2(pc.cy - CY_BASE, pc.cx);
 
     const count = group.length;
-    const spread = Math.PI * 0.78;
+    const baseRadius = 255 + count * 26;
+    const spread = Math.PI; // 180° — changed from ~153° (0.85π)
 
-    const baseRadius = 330 + Math.min(count * 36, 300);
+    // Small random offset so details don't always start at the exact outward ray
+    const startOffset = ((hash(parentTitle + 'd') % 200) / 100 - 1) * 0.6;
 
     group.forEach((card, i) => {
       const t = count === 1 ? 0.5 : i / (count - 1);
-      const baseA = baseAngle - spread / 2 + spread * t;
+      const baseAngle = outward + startOffset + (spread * (t - 0.5));
 
       const h = hash(card.title);
-      const rJitter = ((h & 0xFF) / 255 - 0.5) * 170;
-      const aJitter = (((h >> 8) & 0xFF) / 255 - 0.5) * 0.52;
+      const rJitter = ((h & 0xFF) / 255 - 0.5) * 110;
+      const aJitter = (((h >> 8) & 0xFF) / 255 - 0.5) * 0.9;
+      const angle   = baseAngle + aJitter;
+      const r       = baseRadius + rJitter;
 
-      const r = baseRadius + rJitter;
-      const cx = parentCenter.cx + r * Math.cos(baseA + aJitter);
-      const cy = parentCenter.cy + r * Math.sin(baseA + aJitter);
+      const cx = pc.cx + r * Math.cos(angle);
+      const cy = pc.cy + r * Math.sin(angle);
 
       posMap[card.title] = { cx, cy };
-      positioned.push({ ...card, x: cx - DETAIL_W / 2, y: cy - DETAIL_H / 2 });
+      positioned.push({
+        ...card,
+        x: cx - DETAIL_W / 2,
+        y: cy - 70,
+        w: DETAIL_W,
+        h: 140,
+        angle,
+      });
     });
   });
 
-  // === Repulsion (balanced) ===
-  const iterations = 22;
-  const minDist = 210;
-
-  for (let iter = 0; iter < iterations; iter++) {
-    for (let i = 0; i < positioned.length; i++) {
-      for (let j = i + 1; j < positioned.length; j++) {
-        const a = positioned[i];
-        const b = positioned[j];
-
-        const dx = (a.x + a.w / 2) - (b.x + b.w / 2);
-        const dy = (a.y + a.h / 2) - (b.y + b.h / 2);
-        const dist = Math.sqrt(dx * dx + dy * dy);
-
-        if (dist < minDist && dist > 1) {
-          const force = (minDist - dist) / dist * 0.65;
-          const fx = dx * force;
-          const fy = dy * force;
-
-          a.x += fx * 0.5;
-          a.y += fy * 0.5;
-          b.x -= fx * 0.5;
-          b.y -= fy * 0.5;
-        }
-      }
-    }
-  }
-
-  // Fallback
-  rest.forEach((card, i) => {
-    positioned.push({ ...card, x: 100 + (i % 4) * 280, y: 1500 + Math.floor(i / 4) * 280 });
+  // Orphans / rest
+  const maxY = positioned.reduce((m, c) => Math.max(m, c.y + c.h), 0);
+  let ox2 = 60;
+  [...subs.filter(s => !mains.find(m => m.title === (s.relatedTo||[])[0])),
+   ...details.filter(d => !subs.find(s => s.title === (d.relatedTo||[])[0])),
+   ...rest
+  ].forEach((card, i) => {
+    positioned.push({ ...card, x: ox2, y: maxY + 90, w: SUB_W, h: 155, angle: 0 });
+    ox2 += SUB_W + 28;
   });
 
   return positioned;
+}
+
+// ── Phase 2: angle-based collision resolver (runs after DOM heights known) ────
+const RESOLVE_STEP = 14;  // px to move per step along angle
+const DEG = Math.PI / 180;
+
+function resolveCollisions(cards) {
+  // Process order: mains are anchors (skip), then subs, then details
+  const order = [
+    ...cards.filter(c => c.level === 'main'),
+    ...cards.filter(c => c.level === 'sub'),
+    ...cards.filter(c => c.level === 'detail'),
+    ...cards.filter(c => !['main','sub','detail'].includes(c.level)),
+  ];
+
+  // Index into `order` for fast lookup — mains are frozen
+  const frozen = new Set(cards.filter(c => c.level === 'main').map(c => c.title));
+
+  for (let ci = 0; ci < order.length; ci++) {
+    const card = order[ci];
+    if (frozen.has(card.title)) continue;  // mains don't move
+
+    const settled = order.slice(0, ci);   // already-resolved cards
+    if (!overlapsAny(card, settled, settled.length)) continue;  // already clear
+
+    // Search outward along original angle, trying ±delta offsets
+    // Increase distance ring when all angles at current ring are blocked
+    let found = false;
+    const origAngle = card.angle || 0;
+    const origX = card.x, origY = card.y;
+
+    outer:
+    for (let ring = 1; ring <= 120; ring++) {
+      const dist = ring * RESOLVE_STEP;
+      for (let deltaSteps = 0; deltaSteps <= 18; deltaSteps++) {
+        const delta = deltaSteps * 10 * DEG;
+        const tries = delta === 0 ? [origAngle] : [origAngle + delta, origAngle - delta];
+
+        for (const a of tries) {
+          card.x = origX + Math.cos(a) * dist;
+          card.y = origY + Math.sin(a) * dist;
+          if (!overlapsAny(card, settled, settled.length)) {
+            found = true;
+            break outer;
+          }
+        }
+      }
+    }
+
+    if (!found) {
+      // Exhausted — place at a safe fallback distance straight outward
+      card.x = origX + Math.cos(origAngle) * 120 * RESOLVE_STEP;
+      card.y = origY + Math.sin(origAngle) * 120 * RESOLVE_STEP;
+    }
+  }
 }
 
 // ─── SVG lines layer ──────────────────────────────────────────────────────────
@@ -314,28 +428,52 @@ function renderWall(cards) {
 
   const visible = cards.filter(c => activeTypes.has(c.type));
   const placed = scatterPositions(visible);
-  placedCache = placed;
+  if (!placed || placed.length === 0) {
+    hint.style.display = 'block';
+    hint.textContent = 'No cards to display';
+    return;
+  }
 
-  // Compute canvas bounds for SVG
-  const maxX = Math.max(...placed.map(c => c.x + CARD_W)) + 200;
-  const maxY = Math.max(...placed.map(c => c.y)) + 400;
-  ensureSVG(maxX, maxY);
-
-  // Render cards offscreen first to measure heights
+  // ── Step 1: render all cards hidden to measure real heights ──────────────
   const allEls = [];
   placed.forEach(card => {
     const el = makeCardEl(card);
     el.style.visibility = 'hidden';
-    el.style.left = '-9999px';
-    el.style.top = '0px';
+    el.style.position   = 'absolute';
+    el.style.left       = '-9999px';
+    el.style.top        = '0px';
     canvas.appendChild(el);
     allEls.push({ card, el });
   });
 
-  // Position cards using real heights
+  // Force layout so offsetHeight is accurate
+  void canvas.offsetHeight;
+
+  // ── Step 2: write real heights back into placed cards ────────────────────
   allEls.forEach(({ card, el }) => {
-    const h = el.offsetHeight;
-    cardPositions[card.title] = { x: card.x, y: card.y, w: CARD_W, h };
+    card.h = el.offsetHeight || card.h;
+    card.w = el.offsetWidth  || card.w;
+  });
+
+  // ── Step 3: run angle-based collision resolver with real dimensions ───────
+  resolveCollisions(placed);
+
+  // Safety clamp — no NaN positions
+  placed.forEach(card => {
+    if (!isFinite(card.x)) card.x = 0;
+    if (!isFinite(card.y)) card.y = 0;
+  });
+
+  placedCache = placed;
+
+  // ── Step 4: size SVG canvas to fit everything ────────────────────────────
+  const maxX = Math.max(...placed.map(c => c.x + c.w)) + 300;
+  const maxY = Math.max(...placed.map(c => c.y + c.h)) + 300;
+  ensureSVG(maxX, maxY);
+
+  // ── Step 5: move cards to final resolved positions ────────────────────────
+  allEls.forEach(({ card, el }) => {
+    cardPositions[card.title] = { x: card.x, y: card.y, w: card.w, h: card.h };
     el.style.visibility = '';
     el.style.left = card.x + 'px';
     el.style.top  = card.y + 'px';
@@ -343,6 +481,9 @@ function renderWall(cards) {
 
   // Draw all parent lines faintly by default
   drawLines(null, null);
+
+  // Auto-fit view to all cards
+  centerOnMain();
 }
 
 function makeCardEl(card) {
@@ -462,7 +603,7 @@ genBtn.addEventListener('click', async () => {
     buildTypeMeta(allCards);
     activeTypes = new Set(Object.keys(TYPE_META));
     buildFilterPills();
-    scale = 0.72; applyT(); centerOnMain();
+    scale = 0.72; applyT();
     renderWall(allCards);
   } catch (err) {
     canvas.innerHTML = '';
@@ -491,7 +632,7 @@ pdfInput.addEventListener('change', async () => {
     buildTypeMeta(allCards);
     activeTypes = new Set(Object.keys(TYPE_META));
     buildFilterPills();
-    scale = 0.72; applyT(); centerOnMain();
+    scale = 0.72; applyT();
     renderWall(allCards);
   } catch (err) {
     canvas.innerHTML = '';

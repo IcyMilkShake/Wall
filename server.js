@@ -36,23 +36,29 @@ async function categorizeTopics(text) {
         role: "system",
         content: `You are a document understanding tool. Read the text and organize the key ideas into a clear 3-level tree that best helps someone understand the full topic.
 
-Target size (soft guideline):
-- Aim for roughly 5–10 cards in total for most topics. This is the sweet spot for a clean, readable mindmap.
-- You can go beyond 10 cards (even 20+) when the topic is genuinely rich and has many distinct important parts — but only do so if it meaningfully improves understanding.
-- When there are many separate concepts, prefer creating additional main cards instead of overloading one main branch with too many subs.
+HARD LIMITS — non-negotiable:
+- Maximum 3 main cards. If you produce 4 or more mains, you have failed.
+- Every main MUST have at least 2 sub cards attached to it. A main with no subs is not allowed.
+- If you feel the urge to make a 4th main, make it a sub of the closest existing main instead.
+- Most of your cards should be subs and details, not mains.
 
-Rules:
+Target structure:
+- 2–3 main cards (the big themes)
+- 2–5 sub cards per main (the key points under each theme)
+- 1–3 detail cards per sub, only when a point genuinely needs elaboration
+- Total: 10–20 cards is ideal. Hard cap at 25.
+
+Other rules:
 - Every card MUST add real value. Never repeat information.
 - Keep titles short and clear (2–5 words).
 - Use [[formula]]...[[/formula]] with proper LaTeX inside for any equations or formulas.
-- relatedTo should contain the direct parent. 
-  You MAY also add other cards (from any branch) if they have a meaningful relationship that helps understanding (e.g. a sub from one main can relate to a detail from another main).
+- relatedTo should contain the direct parent.
+  You MAY also add other cards (from any branch) if they have a meaningful relationship that helps understanding.
   Do not add weak or unnecessary connections.
-- Always try to create sub cards to link with main cards. Prioritize linking main cards than creating new ones, but standalone main cards are not prohibited.
 
 For each card return:
 - level: "main", "sub", or "detail"
-- type: short 1-word label (concept, process, example, warning, definition, fact, formula, etc.) according to the topic. Try not to create too much types as it may get confusing.
+- type: short 1-word label (concept, process, example, warning, definition, fact, formula, etc.) according to the topic. Try not to create too many types as it may get confusing.
 - title: 2-5 words, unique
 - raw: 1-3 sentences. Use [[formula]]...[[/formula]] for any equations (with proper LaTeX inside).
 - relatedTo: array of related card titles (can include the direct parent + other relevant cards from different branches).
@@ -147,7 +153,7 @@ Return only the two sentences.`,
   return summaries;
 }
 
-// ─── Trim connections — keep only mutual links or top-3 per card ──────────────
+
 function trimConnections(cards) {
   const titleSet = new Set(cards.map(c => c.title));
   const byTitle = Object.fromEntries(cards.map(c => [c.title, c]));
@@ -184,7 +190,6 @@ app.post("/api/upload", upload.single("pdf"), async (req, res) => {
     const topics = await categorizeTopics(text);
     const cards = trimConnections(await summarizeCards(topics));
     fs.unlinkSync(req.file.path);
-    res.json({ cards });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Pipeline failed: " + err.message });
