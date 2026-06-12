@@ -234,5 +234,5 @@ Keep it to 3-4 short paragraphs. No markdown, no bullet points.`,
   }
 });
 
-const PORT = 8082;
+const PORT = 8080;
 app.listen(PORT, () => console.log(`Server running at http://localhost:${PORT}`));
