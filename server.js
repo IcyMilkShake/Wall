@@ -36,9 +36,9 @@ async function categorizeTopics(text) {
         role: "system",
         content: `You are a document understanding tool. Read the text and organize the key ideas into a clear 3-level tree that best helps someone understand the full topic.
 
-HARD LIMITS — non-negotiable:
-- Maximum 3 main cards. If you produce 4 or more mains, you have failed.
-- Every main MUST have at least 2 sub cards attached to it. A main with no subs is not allowed.
+LIMITS:
+- Maximum 3 main cards. If you produce 4 or more mains, it should be for really rare cases where information is particularly dense.
+- Every main SHOULD have at least 1-2 sub cards attached to it. A main with no subs is not allowed.
 - If you feel the urge to make a 4th main, make it a sub of the closest existing main instead.
 - Most of your cards should be subs and details, not mains.
 
@@ -46,19 +46,21 @@ Target structure:
 - 2–3 main cards (the big themes)
 - 2–5 sub cards per main (the key points under each theme)
 - 1–3 detail cards per sub, only when a point genuinely needs elaboration
-- Total: 10–20 cards is ideal. Hard cap at 25.
+- Scale the total number of cards to the content. A short one-pager needs fewer cards. A dense document needs more. Never pad with weak cards, never compress real ideas to stay small.
 
 Other rules:
 - Every card MUST add real value. Never repeat information.
+- When choosing to use technical terms, EVERY technical term MUST be explained before being used.
 - Keep titles short and clear (2–5 words).
 - Use [[formula]]...[[/formula]] with proper LaTeX inside for any equations or formulas.
-- relatedTo should contain the direct parent.
-  You MAY also add other cards (from any branch) if they have a meaningful relationship that helps understanding.
-  Do not add weak or unnecessary connections.
+- relatedTo should contain the direct parent. You MAY also add other cards (from any branch) if they have a meaningful relationship that helps understanding. Do not add weak or unnecessary connections.
+- If the topic involves a process or sequence, create a dedicated main card titled something like "How It Works" or "The Process". Its sub cards should be the steps in order, each titled "Step 1: ...", "Step 2: ...", etc. Link each step to the next via relatedTo so they form a visible chain.
+- When a card covers something with multiple parts (like layers, stages, components), each part MUST get its own sub or detail card. Never summarize a multi-part concept into one card.
+- Choose the language of the title based on the Context. If the Context is in English, write in English. If it's in another language, match that language. Do not use English if the Context is not in English.
 
 For each card return:
 - level: "main", "sub", or "detail"
-- type: short 1-word label (concept, process, example, warning, definition, fact, formula, etc.) according to the topic. Try not to create too many types as it may get confusing.
+- type: short 1-word label (concept, process, example, warning, definition, fact, formula, step, etc.) according to the topic. Try not to create too many types as it may get confusing.
 - title: 2-5 words, unique
 - raw: 1-3 sentences. Use [[formula]]...[[/formula]] for any equations (with proper LaTeX inside).
 - relatedTo: array of related card titles (can include the direct parent + other relevant cards from different branches).
@@ -69,7 +71,6 @@ Return ONLY a valid JSON array.`,
     ],
   });
 
-  // ... (keep your existing robust JSON cleaning + formula restoration code here)
   const raw = response.choices[0].message.content.trim();
   let cleaned = raw.replace(/```json|```/g, '').trim();
 
@@ -101,6 +102,7 @@ Return ONLY a valid JSON array.`,
   }
   return topics;
 }
+
 // ─── Step 3: Summarize each card in plain English ────────────────────────────
 async function summarizeCards(topics) {
   const summaries = await Promise.all(
@@ -114,18 +116,19 @@ async function summarizeCards(topics) {
           {
             role: "system",
             content: `You explain things to someone with zero background knowledge.
-Write exactly 2 plain English sentences.
+Write 2-4 plain English sentences depending on complexity.
 
 CRITICAL INSTRUCTIONS:
+- Simple concepts: 2 sentences is enough.
+- Multi-part concepts (layers, stages, components, steps): use 3-4 sentences, covering each named part. Never leave out a named part that was mentioned in the Context.
 - If the Context contains a [[formula]]...[[/formula]] block, you MUST copy that exact block (including the [[formula]] and [[/formula]] tags) into one of your sentences. Never remove it or rewrite the LaTeX.
 - Never output Unicode math symbols (like α, β, ∣0⟩, etc.). Always keep the original [[formula]] block.
-- You may explain how to use the formula if it makes the explanation clearer.
-- Keep everything to exactly 2 sentences. No extra text.
+- Choose the language of the output based on the Context. If the Context is in English, write in English. If it's in another language, match that language. Do not use English if the Context is not in English.
 
 Example of good output:
 "The qubit can be in a superposition of both states at once. This is written as [[formula]]\\alpha |0\\rangle + \\beta |1\\rangle[[/formula]] and the values of alpha and beta represent the probabilities."
 
-Return only the two sentences.`,
+Return only the sentences, no extra text.`,
           },
           {
             role: "user",
@@ -152,7 +155,6 @@ Return only the two sentences.`,
 
   return summaries;
 }
-
 
 function trimConnections(cards) {
   const titleSet = new Set(cards.map(c => c.title));
@@ -190,6 +192,7 @@ app.post("/api/upload", upload.single("pdf"), async (req, res) => {
     const topics = await categorizeTopics(text);
     const cards = trimConnections(await summarizeCards(topics));
     fs.unlinkSync(req.file.path);
+    res.json({ cards })
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Pipeline failed: " + err.message });

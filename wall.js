@@ -559,7 +559,7 @@ function buildFilterPills() {
   for (const [type, meta] of Object.entries(TYPE_META)) {
     const pill = document.createElement('button');
     pill.className = 'pill';
-    pill.textContent = meta.label + 's';
+    pill.textContent = meta.label;
     pill.style.background = meta.color + '22';
     pill.style.borderColor = meta.color + '66';
     pill.style.color = meta.color;
