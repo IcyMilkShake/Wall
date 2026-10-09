@@ -1,0 +1,4 @@
+check this everytime before shipping an updated prompt ig
+1. consistency
+2. complexity awareness
+3. plausible amount of "types" and cards generated

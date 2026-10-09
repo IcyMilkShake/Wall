@@ -7,6 +7,7 @@ let allCards = [];
 let cardPositions = {};   // title -> { x, y, w, h }
 let activeTypes = new Set();
 let hoveredTitle = null;
+let lockedTitle = null;
 
 // ─── Elements ─────────────────────────────────────────────────────────────────
 const wrap       = document.getElementById('canvas-wrap');
@@ -58,6 +59,7 @@ function centerOnMain() {
 
 wrap.addEventListener('mousedown', e => {
   if (e.target === wrap || e.target === canvas || e.target.tagName === 'svg' || e.target.tagName === 'line') {
+    if (lockedTitle) clearFocus();
     dragging = true; sx = e.clientX; sy = e.clientY; sox = ox; soy = oy;
   }
 });
@@ -94,6 +96,7 @@ wrap.addEventListener('touchstart', e => {
   if (e.touches.length === 1) {
     const t = e.touches[0];
     if (e.target === wrap || e.target === canvas || e.target.tagName === 'svg' || e.target.tagName === 'line') {
+      if (lockedTitle) clearFocus();
       touchDragging = true;
       tsx = t.clientX; tsy = t.clientY; tsox = ox; tsoy = oy;
       e.preventDefault();
@@ -511,8 +514,10 @@ function drawLines(highlight, related) {
       const parent = placedCache.find(c => c.title === parentTitle);
       if (!parent) return;
 
-      const isActive = highlight && (related?.has(card.title) || related?.has(parentTitle));
-      const color = TYPE_META[parent.type]?.color || '#7F77DD';
+      const isActive = highlight && (card.title === highlight || parentTitle === highlight);
+      const color = isActive
+        ? (TYPE_META[placedCache.find(c => c.title === highlight)?.type]?.color || TYPE_META[parent.type]?.color || '#7F77DD')
+        : (TYPE_META[parent.type]?.color || '#7F77DD');
       const ph = cardPositions[parent.title]?.h || 150;
       const ch = cardPositions[card.title]?.h || 140;
       const pw = parent.level === 'main' ? 230 : 200;
@@ -529,8 +534,8 @@ function drawLines(highlight, related) {
       line.setAttribute('x2', x2);
       line.setAttribute('y2', y2);
       line.setAttribute('stroke', color);
-      line.setAttribute('stroke-width', isActive ? '2' : '1');
-      line.setAttribute('opacity', isActive ? '0.85' : '0.18');
+      line.setAttribute('stroke-width', isActive ? '2.5' : '1');
+      line.setAttribute('opacity', isActive ? '0.95' : (highlight ? '0.07' : '0.18'));
       svgEl.appendChild(line);
     });
   });
@@ -541,6 +546,9 @@ function drawLines(highlight, related) {
 let placedCache = [];
 
 function renderWall(cards) {
+  lockedTitle = null;
+  hoveredTitle = null;
+  wrap.classList.remove('is-focused');
   canvas.innerHTML = '';
   hint.style.display = 'none';
   cardPositions = {};
@@ -617,6 +625,7 @@ function makeCardEl(card) {
   el.style.opacity = card.level === 'detail' ? '0.92' : '1';
   el.dataset.title = card.title;
   el.dataset.level = card.level || 'detail';
+  el.dataset.color = meta.color;
   el.innerHTML = `
     <div class="card-type" style="color:${meta.color};font-size:${card.level === 'main' ? '11px' : '10px'}">${meta.label} · ${card.level || ''}</div>
     <div class="card-title" style="font-size:${card.level === 'main' ? '14px' : card.level === 'sub' ? '13px' : '12px'}">${card.title}</div>
@@ -624,30 +633,68 @@ function makeCardEl(card) {
     <button class="card-explain">✦ Explain more</button>
   `;
   el.addEventListener('mouseenter', () => {
-    hoveredTitle = card.title;
-    // Collect direct links: cards this card points to + cards that point to this card
-    const outgoing = card.relatedTo || [];
-    const incoming = placedCache.filter(c => (c.relatedTo || []).includes(card.title)).map(c => c.title);
-    const related = new Set([card.title, ...outgoing, ...incoming]);
-    // Reset all first then dim unrelated
-    document.querySelectorAll('.card').forEach(c => {
-      c.style.opacity = related.has(c.dataset.title) ? '1' : '0.25';
-      c.style.transition = 'opacity 0.15s';
-    });
-    drawLines(card.title, related);
+    if (lockedTitle) return;
+    applyFocus(card.title);
   });
   el.addEventListener('mouseleave', () => {
-    hoveredTitle = null;
-    document.querySelectorAll('.card').forEach(c => {
-      c.style.opacity = '1';
-    });
-    drawLines(null, null);
+    if (lockedTitle) return;
+    clearFocus();
+  });
+  el.addEventListener('click', e => {
+    if (e.target.closest('.card-explain')) return;
+    e.stopPropagation();
+    lockedTitle = card.title;
+    applyFocus(card.title);
   });
   el.querySelector('.card-explain').addEventListener('click', e => {
     e.stopPropagation();
     openExplain(card.title, card.summary);
   });
   return el;
+}
+
+function directRelated(title) {
+  const card = placedCache.find(c => c.title === title);
+  const outgoing = card?.relatedTo || [];
+  const incoming = placedCache
+    .filter(c => (c.relatedTo || []).includes(title))
+    .map(c => c.title);
+  return new Set([title, ...outgoing, ...incoming]);
+}
+
+function applyFocus(title) {
+  hoveredTitle = title;
+  const related = directRelated(title);
+  const focusCard = placedCache.find(c => c.title === title);
+  const color = TYPE_META[focusCard?.type]?.color || '#888780';
+
+  wrap.classList.add('is-focused');
+  document.querySelectorAll('.card').forEach(c => {
+    const isSelf = c.dataset.title === title;
+    const on = related.has(c.dataset.title);
+    c.style.opacity = on ? '1' : '0.34';
+    c.style.transition = 'opacity 0.15s, box-shadow 0.15s';
+    c.classList.toggle('is-focus', isSelf);
+    c.classList.toggle('is-related', on && !isSelf);
+    c.style.zIndex = isSelf ? '6' : (on ? '5' : '');
+    c.style.boxShadow = isSelf
+      ? `0 0 0 1.5px ${color}, 0 0 22px ${color}88, 0 10px 28px rgba(0,0,0,0.12)`
+      : '';
+  });
+  drawLines(title, related);
+}
+
+function clearFocus() {
+  hoveredTitle = null;
+  lockedTitle = null;
+  wrap.classList.remove('is-focused');
+  document.querySelectorAll('.card').forEach(c => {
+    c.style.opacity = c.dataset.level === 'detail' ? '0.92' : '1';
+    c.style.boxShadow = '';
+    c.style.zIndex = '';
+    c.classList.remove('is-focus', 'is-related');
+  });
+  drawLines(null, null);
 }
 
 // ─── Show skeletons ───────────────────────────────────────────────────────────

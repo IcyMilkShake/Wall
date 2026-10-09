@@ -100,14 +100,6 @@ async function analyzeBatchWithVision(imageBuffers, batchIndex, totalBatches) {
 }
 
 async function synthesizeDeckAnalysis(batchResults, complexity) {
-  const limits = {
-    1: { min: 5, max: 8 },
-    2: { min: 8, max: 14 },
-    3: { min: 14, max: 20 },
-    4: { min: 20, max: 30 },
-    5: { min: 30, max: 55 }
-  };
-  const { min: minCards, max: maxCards } = limits[complexity] || limits[3];
 
   const combinedContext = batchResults.map((r, i) =>
     `Batch ${i+1}: ${r.batchSummary}\nTopics: ${(r.keyTopics || []).join(", ")}\nRelationships: ${JSON.stringify(r.relationships || [])}`
@@ -122,8 +114,42 @@ async function synthesizeDeckAnalysis(batchResults, complexity) {
         role: "system",
         content: `You are a strict document-to-card converter.
 
-CRITICAL CARD COUNT RULE (NON-NEGOTIABLE):
-You MUST output between ${minCards} and ${maxCards} cards in total for complexity level ${complexity}.
+ADAPTIVE CARD COUNT:
+- Determine the appropriate number of cards from the topic's scope and learning requirements.
+- Use only as many cards as needed to explain the topic clearly and completely.
+- Simple topics should remain concise. Complex topics may require more cards.
+- Never add unnecessary cards to meet a minimum.
+- Never omit essential concepts just to meet a preferred card count.
+- Aim for a maximum of 55 cards, but prioritize essential coverage.
+- If the topic genuinely requires more than 55 cards, prioritize a coherent overview of the topic and its essential categories.
+
+LEARNING DESIGN:
+- Identify the essential concepts needed to understand the requested topic.
+- Introduce prerequisite concepts before concepts that depend on them.
+- Adapt the structure to the knowledge type:
+  - Concepts: definition, meaning, examples, and distinctions.
+  - Processes: stages in logical order and why they occur.
+  - Classifications: categories and their distinguishing features.
+  - Comparisons: similarities, differences, and practical implications.
+  - Complex theories: foundations, principles, mechanisms, and implications.
+- Do not force every topic into the same structure.
+- Explain technical terminology when it first becomes necessary.
+- Use cross-links only when they communicate a meaningful relationship.
+- Prioritize completeness, clarity, and logical organization over a fixed number of cards.
+
+COMPLEXITY CONTROL:
+
+The requested complexity level is ${complexity}, on a scale from 1 to 5. This level controls the depth, assumed knowledge, and precision of the explanation, NOT a fixed number of cards.
+
+- Level 1 — Absolute beginner: Explain foundational ideas using familiar language and concrete examples. Define necessary terminology. Avoid advanced details unless essential.
+- Level 2 — Beginner: Explain core concepts and important relationships. Introduce basic terminology with clear definitions.
+- Level 3 — Intermediate: Explain how concepts work, how their parts interact, and why important relationships exist. Include relevant technical terms.
+- Level 4 — Advanced: Include underlying mechanisms, important distinctions, assumptions, and meaningful exceptions. Use precise terminology and explain specialized concepts where needed.
+- Level 5 — Expert-oriented: Preserve technical precision. Include deeper mechanisms, nuanced relationships, significant limitations, and advanced distinctions relevant to the source or topic.
+
+Adapt the amount of detail in each card to the selected level. Higher complexity should deepen explanations and include more advanced concepts when relevant, rather than merely making sentences longer or adding unnecessary cards.
+
+Never invent advanced information to make a topic seem more complex. Maintain factual accuracy and logical progression at every level.
 
 STRICT RULES:
 - Most of your cards should be "sub" and "detail" level. Keep the number of "main" cards low.
@@ -160,16 +186,6 @@ Each card object must have:
 // ─── Original categorizeTopics (long prompt untouched) ───────────────────────
 async function categorizeTopics(text, complexity = 3) {
 
-  const limits = {
-    1: { min: 4,  max: 8 },
-    2: { min: 8,  max: 12 },
-    3: { min: 12, max: 16 },
-    4: { min: 16, max: 24 },
-    5: { min: 24, max: 55 }
-  };
-
-  const { min: minCards, max: maxCards } = limits[complexity] || limits[3];
-
   const response = await openai.chat.completions.create({
     model: "gpt-5.4-mini-2026-03-17",
     max_completion_tokens: complexity >= 4 ? 10000 : 6000,
@@ -179,12 +195,42 @@ async function categorizeTopics(text, complexity = 3) {
         role: "system",
         content: `You are a strict document-to-card converter.
 
-CRITICAL CARD COUNT RULE (NON-NEGOTIABLE):
-You MUST output between ${minCards} and ${maxCards} cards in total for complexity level ${complexity}.
-This limit is absolute and non-negotiable.
-- If the content seems rich, you MUST consolidate information into fewer cards. Do NOT exceed ${maxCards} cards.
-- If the content seems sparse, you MUST still reach at least ${minCards} cards by creating appropriate sub and detail cards.
-- Before outputting, count your cards. If outside the range, adjust by removing or adding cards until it fits.
+ADAPTIVE CARD COUNT:
+- Determine the appropriate number of cards from the topic's scope and learning requirements.
+- Use only as many cards as needed to explain the topic clearly and completely.
+- Simple topics should remain concise. Complex topics may require more cards.
+- Never add unnecessary cards to meet a minimum.
+- Never omit essential concepts just to meet a preferred card count.
+- Aim for a maximum of 55 cards, but prioritize essential coverage.
+- If the topic genuinely requires more than 55 cards, prioritize a coherent overview of the topic and its essential categories.
+
+LEARNING DESIGN:
+- Identify the essential concepts needed to understand the requested topic.
+- Introduce prerequisite concepts before concepts that depend on them.
+- Adapt the structure to the knowledge type:
+  - Concepts: definition, meaning, examples, and distinctions.
+  - Processes: stages in logical order and why they occur.
+  - Classifications: categories and their distinguishing features.
+  - Comparisons: similarities, differences, and practical implications.
+  - Complex theories: foundations, principles, mechanisms, and implications.
+- Do not force every topic into the same structure.
+- Explain technical terminology when it first becomes necessary.
+- Use cross-links only when they communicate a meaningful relationship.
+- Prioritize completeness, clarity, and logical organization over a fixed number of cards.
+
+COMPLEXITY CONTROL:
+
+The requested complexity level is ${complexity}, on a scale from 1 to 5. This level controls the depth, assumed knowledge, and precision of the explanation, NOT a fixed number of cards.
+
+- Level 1 — Absolute beginner: Explain foundational ideas using familiar language and concrete examples. Define necessary terminology. Avoid advanced details unless essential.
+- Level 2 — Beginner: Explain core concepts and important relationships. Introduce basic terminology with clear definitions.
+- Level 3 — Intermediate: Explain how concepts work, how their parts interact, and why important relationships exist. Include relevant technical terms.
+- Level 4 — Advanced: Include underlying mechanisms, important distinctions, assumptions, and meaningful exceptions. Use precise terminology and explain specialized concepts where needed.
+- Level 5 — Expert-oriented: Preserve technical precision. Include deeper mechanisms, nuanced relationships, significant limitations, and advanced distinctions relevant to the source or topic.
+
+Adapt the amount of detail in each card to the selected level. Higher complexity should deepen explanations and include more advanced concepts when relevant, rather than merely making sentences longer or adding unnecessary cards.
+
+Never invent advanced information to make a topic seem more complex. Maintain factual accuracy and logical progression at every level.
 
 STRICT RULES:
 - Most of your cards should be "sub" and "detail" level. Keep the number of "main" cards low.
@@ -207,7 +253,7 @@ Return ONLY a valid JSON object with this exact structure:
 
 Each card object must have:
 - level: "main", "sub", or "detail"
-- type: short 1-word label. Do not try to create too many types as it may get confusing.
+- type: short 1-word label, create types that correspond to the content. Avoid creating too many types. Increase its amount by little as complexity increases (1-7 types max).
 - title: 2-5 words
 - raw: 1-3 sentences (use [[formula]]...[[/formula]] for equations)
 - relatedTo: array of related card titles`

@@ -87,7 +87,7 @@ textarea#text-input:focus { outline: none; border-color: var(--text3); }
   position: relative; cursor: grab;
 }
 .canvas-wrap:active { cursor: grabbing; }
-.canvas { position: absolute; transform-origin: 0 0; }
+.canvas { position: absolute; transform-origin: 0 0; z-index: 2; }
 
 .hint {
   position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -112,7 +112,9 @@ textarea#text-input:focus { outline: none; border-color: var(--text3); }
   cursor: pointer;
   transition: border-color 0.15s, transform 0.1s;
 }
-.card:hover { border-color: var(--border2); transform: translateY(-1px); }
+.card:hover { border-color: var(--border2); }
+.card.is-focus { z-index: 6; }
+.card.is-related { z-index: 5; }
 .card-type {
   font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
   text-transform: uppercase; margin-bottom: 5px;

@@ -9,29 +9,26 @@
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
 </head>
 <style>
-  body * {
+  #canvas-wrap, #canvas-wrap * {
     -webkit-user-select: none !important;
     user-select: none !important;
   }
-  input, textarea, [contenteditable="true"] {
+  #canvas-wrap ::selection {
+    background: transparent;
+  }
+  input, textarea, [contenteditable="true"], .explain-body {
     -webkit-user-select: text !important;
     user-select: text !important;
-  }
-  ::selection {
-    background: transparent;
   }
 </style>
 <script>
   document.addEventListener("selectstart", (e) => {
-    if (e.target.closest("input, textarea, [contenteditable='true']")) return;
+    if (!e.target.closest || !e.target.closest("#canvas-wrap")) return;
     e.preventDefault();
   });
-  document.addEventListener("dragstart", (e) => e.preventDefault());
-  document.addEventListener("mousemove", (e) => {
-    if (e.buttons !== 1) return;
-    const t = e.target;
-    if (t.closest && t.closest("input, textarea, [contenteditable='true']")) return;
-    window.getSelection()?.removeAllRanges();
+  document.addEventListener("dragstart", (e) => {
+    if (!e.target.closest || !e.target.closest("#canvas-wrap")) return;
+    e.preventDefault();
   });
 </script>
 <body>
