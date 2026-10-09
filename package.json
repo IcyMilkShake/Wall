@@ -7,11 +7,14 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
+    "canvas": "^3.2.3",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
     "express": "^4.18.2",
     "multer": "^1.4.5-lts.1",
     "openai": "^4.28.0",
-    "pdf-parse": "^1.1.1"
+    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^6.0.227",
+    "sharp": "^0.35.1"
   }
 }

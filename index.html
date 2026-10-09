@@ -4,10 +4,36 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>The Wall</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="style.css?v=3" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
 </head>
+<style>
+  body * {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+  }
+  input, textarea, [contenteditable="true"] {
+    -webkit-user-select: text !important;
+    user-select: text !important;
+  }
+  ::selection {
+    background: transparent;
+  }
+</style>
+<script>
+  document.addEventListener("selectstart", (e) => {
+    if (e.target.closest("input, textarea, [contenteditable='true']")) return;
+    e.preventDefault();
+  });
+  document.addEventListener("dragstart", (e) => e.preventDefault());
+  document.addEventListener("mousemove", (e) => {
+    if (e.buttons !== 1) return;
+    const t = e.target;
+    if (t.closest && t.closest("input, textarea, [contenteditable='true']")) return;
+    window.getSelection()?.removeAllRanges();
+  });
+</script>
 <body>
 
   <div class="app">
@@ -33,6 +59,54 @@
       </div>
       <div class="topbar-right">
         <div class="filter-pills" id="filter-pills"></div>
+        <div class="settings-wrap" id="settings-wrap">
+          <button class="btn-icon" id="settings-btn" title="Settings">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+            </svg>
+          </button>
+          <!-- Settings dropdown -->
+          <div class="settings-panel" id="settings-panel">
+            <div class="settings-section">
+              <div class="settings-row">
+                <div class="settings-label-group">
+                  <span class="settings-label">Complexity</span>
+                  <span class="settings-sublabel">How much detail to generate</span>
+                </div>
+                <div class="settings-control">
+                  <span class="complexity-label" id="complexity-label">Simple</span>
+                  <input type="range" id="complexity" min="1" max="5" value="3" step="0.01" />
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-divider"></div>
+
+            <div class="settings-section settings-section--muted">
+              <div class="settings-row settings-row--disabled">
+                <div class="settings-label-group">
+                  <span class="settings-label">Language</span>
+                  <span class="settings-sublabel">Force output language</span>
+                </div>
+                <span class="settings-badge">Soon</span>
+              </div>
+              <div class="settings-row settings-row--disabled">
+                <div class="settings-label-group">
+                  <span class="settings-label">Card limit</span>
+                  <span class="settings-sublabel">Max cards to generate</span>
+                </div>
+                <span class="settings-badge">Soon</span>
+              </div>
+              <div class="settings-row settings-row--disabled">
+                <div class="settings-label-group">
+                  <span class="settings-label">Focus mode</span>
+                  <span class="settings-sublabel">Show only main + sub cards</span>
+                </div>
+                <span class="settings-badge">Soon</span>
+              </div>
+            </div>
+          </div>
+        </div>
         <button class="btn-icon" id="reset-btn" title="Reset view">⊙</button>
       </div>
     </header>
@@ -43,7 +117,7 @@
       <div class="hint" id="hint">Enter a topic or upload a PDF to generate your wall</div>
     </main>
 
-    <!-- Explain panel (slides in from right) -->
+    <!-- Explain panel -->
     <aside class="explain-panel" id="explain-panel">
       <div class="explain-header">
         <span class="explain-title" id="explain-title"></span>

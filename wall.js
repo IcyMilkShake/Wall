@@ -86,7 +86,109 @@ wrap.addEventListener('wheel', e => {
   applyT();
 }, { passive: false });
 
+// ─── Touch support for mobile pan ─────────────────────────────────────────────
+let touchDragging = false;
+let tsx, tsy, tsox, tsoy;
+
+wrap.addEventListener('touchstart', e => {
+  if (e.touches.length === 1) {
+    const t = e.touches[0];
+    if (e.target === wrap || e.target === canvas || e.target.tagName === 'svg' || e.target.tagName === 'line') {
+      touchDragging = true;
+      tsx = t.clientX; tsy = t.clientY; tsox = ox; tsoy = oy;
+      e.preventDefault();
+    }
+  }
+}, { passive: false });
+
+window.addEventListener('touchmove', e => {
+  if (!touchDragging || e.touches.length !== 1) return;
+  const t = e.touches[0];
+  ox = tsox + t.clientX - tsx;
+  oy = tsoy + t.clientY - tsy;
+  applyT();
+  e.preventDefault();
+}, { passive: false });
+
+window.addEventListener('touchend', () => { touchDragging = false; });
+window.addEventListener('touchcancel', () => { touchDragging = false; });
+
 document.getElementById('reset-btn').onclick = () => { centerOnMain(); };
+// ─── Settings panel ───────────────────────────────────────────────────────────
+const settingsBtn   = document.getElementById('settings-btn');
+const settingsPanel = document.getElementById('settings-panel');
+const settingsWrap  = document.getElementById('settings-wrap');
+
+settingsBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  settingsPanel.classList.toggle('open');
+});
+
+document.addEventListener('click', (e) => {
+  if (!settingsWrap.contains(e.target)) {
+    settingsPanel.classList.remove('open');
+  }
+});
+
+// ─── Complexity slider ────────────────────────────────────────────────────────
+const complexitySlider = document.getElementById('complexity');
+const complexityLabel  = document.getElementById('complexity-label');
+
+const COLOR_STOPS = [
+  [100, 180, 120],  // 1 — muted sage green
+  [130, 170, 110],  // 2 — default
+  [160, 148, 100],  // 3 — warm tan
+  [190, 110,  70],  // 4 — muted orange
+  [200,  70,  60],  // 5 — muted red
+];
+
+const LABEL_STOPS = [
+  { at: 1,   text: 'Simple'   },
+  { at: 2.5, text: 'Mediocre' },
+  { at: 4,   text: 'Detailed' },
+];
+
+function lerpColor(t) {
+  const pos = Math.max(0, Math.min(4, t - 1));
+  const lo  = Math.floor(pos);
+  const hi  = Math.min(4, lo + 1);
+  const f   = pos - lo;
+  const [r1,g1,b1] = COLOR_STOPS[lo];
+  const [r2,g2,b2] = COLOR_STOPS[hi];
+  return `rgb(${Math.round(r1+(r2-r1)*f)},${Math.round(g1+(g2-g1)*f)},${Math.round(b1+(b2-b1)*f)})`;
+}
+
+function getLabel(val) {
+  let best = LABEL_STOPS[0], bestDist = Infinity;
+  for (const s of LABEL_STOPS) {
+    const d = Math.abs(val - s.at);
+    if (d < bestDist) { bestDist = d; best = s; }
+  }
+  return best.text;
+}
+
+function updateComplexityUI(val) {
+  const color = lerpColor(val);
+  const trackColor = lerpColor(val).replace('rgb','rgba').replace(')', ', 0.25)');
+
+  complexityLabel.textContent = getLabel(val);
+  complexityLabel.style.color = color;
+  complexitySlider.style.background = trackColor;
+
+  let thumbStyle = document.getElementById('thumb-style');
+  if (!thumbStyle) {
+    thumbStyle = document.createElement('style');
+    thumbStyle.id = 'thumb-style';
+    document.head.appendChild(thumbStyle);
+  }
+  thumbStyle.textContent = `
+    #complexity::-webkit-slider-thumb { background: ${color}; box-shadow: 0 0 0 1px ${color}; }
+    #complexity::-moz-range-thumb     { background: ${color}; box-shadow: 0 0 0 1px ${color}; }
+  `;
+}
+
+complexitySlider.addEventListener('input', () => updateComplexityUI(+complexitySlider.value));
+updateComplexityUI(+complexitySlider.value);
 
 // ─── Card type config — built dynamically ────────────────────────────────────
 const PALETTE = [
@@ -134,6 +236,23 @@ const MAIN_W = 230, SUB_W = 200, DETAIL_W = 178;
 // Padding used only for collision detection — rectangular, scales with card height
 const PADDING = 30;
 
+let cardSizes = {
+  CARD_W: 200,
+  MAIN_W: 230,
+  SUB_W: 200,
+  DETAIL_W: 178
+};
+
+function updateCardSizes() {
+  const isMobile = window.innerWidth < 768;
+  if (isMobile) {
+    cardSizes = { CARD_W: 160, MAIN_W: 190, SUB_W: 165, DETAIL_W: 148 };
+  } else {
+    cardSizes = { CARD_W: 200, MAIN_W: 230, SUB_W: 200, DETAIL_W: 178 };
+  }
+}
+updateCardSizes(); // initial
+
 function hash(str) {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = (Math.imul(31, h) + str.charCodeAt(i)) | 0;
@@ -174,7 +293,7 @@ function scatterPositions(cards) {
   // We deliberately start them tight so the layout feels dense instead of spread out.
   const CY_BASE = 520;
   let curX = 60;                    // left margin
-  const MAIN_GAP = 300;              // gap between edges of adjacent mains (resolver will push if needed)
+  const MAIN_GAP = 750;              // gap between edges of adjacent mains (resolver will push if needed)
 
   const mainClusters = mains.map(main => {
     const subsCount = subs.filter(s => (s.relatedTo || [])[0] === main.title).length;
@@ -217,7 +336,7 @@ function scatterPositions(cards) {
   Object.entries(subsByParent).forEach(([parentTitle, group]) => {
     const pc = posMap[parentTitle] || { cx: 200, cy: CY_BASE };
     const count = group.length;
-    const baseRadius = 310 + count * 38;
+    const baseRadius = 420 + count * 45;
     const arcSpread = Math.PI * 2;
 
     // Random starting angle so the pattern doesn't always align to axes
@@ -269,7 +388,7 @@ function scatterPositions(cards) {
       : Math.atan2(pc.cy - CY_BASE, pc.cx);
 
     const count = group.length;
-    const baseRadius = 255 + count * 26;
+    const baseRadius = 320 + count * 32;
     const spread = Math.PI; // 180° — changed from ~153° (0.85π)
 
     // Small random offset so details don't always start at the exact outward ray
@@ -594,7 +713,7 @@ genBtn.addEventListener('click', async () => {
     const res = await fetch(`${API}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text, complexity: +complexitySlider.value }),
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
@@ -624,6 +743,7 @@ pdfInput.addEventListener('change', async () => {
   docName.textContent = file.name;
   const formData = new FormData();
   formData.append('pdf', file);
+  formData.append('complexity', complexitySlider.value);
   try {
     const res = await fetch(`${API}/upload`, { method: 'POST', body: formData });
     const data = await res.json();
