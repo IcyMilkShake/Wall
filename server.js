@@ -106,70 +106,13 @@ async function synthesizeDeckAnalysis(batchResults, complexity) {
   ).join("\n\n");
 
   const response = await openai.chat.completions.create({
-    model: "gpt-5.4-mini-2026-03-17",
+    model: "gpt-6.1-sol",
     max_completion_tokens: complexity >= 4 ? 9000 : 6000,
-    response_format: { type: "json_object" },
+    response_format: { type: "json_object" }, 
     messages: [
       {
         role: "system",
-        content: `You are a strict document-to-card converter.
-
-ADAPTIVE CARD COUNT:
-- Determine the appropriate number of cards from the topic's scope and learning requirements.
-- Use only as many cards as needed to explain the topic clearly and completely.
-- Simple topics should remain concise. Complex topics may require more cards.
-- Never add unnecessary cards to meet a minimum.
-- Never omit essential concepts just to meet a preferred card count.
-- Aim for a maximum of 55 cards, but prioritize essential coverage.
-- If the topic genuinely requires more than 55 cards, prioritize a coherent overview of the topic and its essential categories.
-
-LEARNING DESIGN:
-- Identify the essential concepts needed to understand the requested topic.
-- Introduce prerequisite concepts before concepts that depend on them.
-- Adapt the structure to the knowledge type:
-  - Concepts: definition, meaning, examples, and distinctions.
-  - Processes: stages in logical order and why they occur.
-  - Classifications: categories and their distinguishing features.
-  - Comparisons: similarities, differences, and practical implications.
-  - Complex theories: foundations, principles, mechanisms, and implications.
-- Do not force every topic into the same structure.
-- Explain technical terminology when it first becomes necessary.
-- Use cross-links only when they communicate a meaningful relationship.
-- Prioritize completeness, clarity, and logical organization over a fixed number of cards.
-
-COMPLEXITY CONTROL:
-
-The requested complexity level is ${complexity}, on a scale from 1 to 5. This level controls the depth, assumed knowledge, and precision of the explanation, NOT a fixed number of cards.
-
-- Level 1 — Absolute beginner: Explain foundational ideas using familiar language and concrete examples. Define necessary terminology. Avoid advanced details unless essential.
-- Level 2 — Beginner: Explain core concepts and important relationships. Introduce basic terminology with clear definitions.
-- Level 3 — Intermediate: Explain how concepts work, how their parts interact, and why important relationships exist. Include relevant technical terms.
-- Level 4 — Advanced: Include underlying mechanisms, important distinctions, assumptions, and meaningful exceptions. Use precise terminology and explain specialized concepts where needed.
-- Level 5 — Expert-oriented: Preserve technical precision. Include deeper mechanisms, nuanced relationships, significant limitations, and advanced distinctions relevant to the source or topic.
-
-Adapt the amount of detail in each card to the selected level. Higher complexity should deepen explanations and include more advanced concepts when relevant, rather than merely making sentences longer or adding unnecessary cards.
-
-Never invent advanced information to make a topic seem more complex. Maintain factual accuracy and logical progression at every level.
-
-STRICT RULES:
-- Most of your cards should be "sub" and "detail" level. Keep the number of "main" cards low.
-- Every card MUST add real value. Never repeat information.
-- Use [[formula]]...[[/formula]] with proper LaTeX inside for any equations or formulas.
-- relatedTo rules:
-  - "main" cards have no relatedTo.
-  - "sub" cards must include their parent main in relatedTo.
-  - "detail" cards must include their parent "sub" in relatedTo.
-- Create cards that show how different parts of the deck relate to each other.
-
-Return ONLY a valid JSON object with this exact structure:
-{ "cards": [ array of card objects ] }
-
-Each card object must have:
-- level: "main", "sub", or "detail"
-- type: short 1-word label, create types that correspond to the content. Avoid creating too many types. Increase its amount by little as complexity increases (1-7 types max).
-- title: 2-5 words
-- raw: 1-3 sentences (use [[formula]]...[[/formula]] for equations)
-- relatedTo: array of related card titles`
+        content: buildMindmapInstructions(complexity)
       },
       { role: "user", content: `Full deck analysis:\n\n${combinedContext}\n\nGenerate the final cards now.` }
     ]
@@ -183,80 +126,153 @@ Each card object must have:
   }
 }
 
+// ─── Shared prompts
+
+function buildMindmapInstructions(complexity = 3) {
+  return `
+You are an educational mindmap designer. Turn the provided learning material into a clear, accurate, well-connected mindmap that helps students understand and remember the subject.
+
+Create focused cards rather than copying textbook paragraphs into a few large cards. Always create at least one main card.
+
+COMPLEXITY
+The requested complexity is ${complexity}/5.
+
+1: Essential concepts and simple explanations of the fundamentals.
+2: Core concepts and important supporting details.
+3: Balanced coverage of concepts, explanations, and relationships.
+4: Deeper coverage of important mechanisms, distinctions, and implications.
+5: Thorough coverage of all important aspects supported by the source, including relevant concepts, distinctions, mechanisms, and relationships.
+
+Higher complexity means broader and deeper coverage, not longer writing on every card. Never invent advanced information just to increase complexity, and do not interpret level 5 as literally covering every possible aspect of the subject.
+
+CARD DESIGN
+- Each card must focus on one central idea.
+- Prefer multiple focused, connected cards over one card containing several independent ideas.
+- Give each card enough explanation for a student to understand its idea without needing to open another card.
+- As a flexible guide, many cards will be around 20–45 words, but this is not a word limit. Use fewer words for simple ideas and more when necessary for accurate understanding.
+- Most cards should take 1–4 sentences. A complex idea may need more; do not force a sentence count.
+- Split distinct concepts, mechanisms, stages, meaningful technical definitions, and examples into separate cards when each deserves independent treatment.
+- Do not split a coherent explanation merely to meet a word count or create more cards.
+- Avoid filler, long introductions, repeated information, and details that belong in another card.
+- There is no fixed maximum number of cards. Cover all important source material at the requested complexity using focused cards and useful connections.
+- Keep parent cards broad enough to introduce their branch; child cards should add information rather than repeat it.
+
+CARD-DETAIL EXAMPLES
+Too brief for a general learning mindmap:
+Title: Acceleration
+Raw: How quickly velocity changes over time.
+
+Better:
+Title: Acceleration
+Raw: Acceleration describes how quickly an object's velocity changes over time. It can involve speeding up, slowing down, or changing direction. It is measured in metres per second squared (m/s²).
+
+If the explanation also needs to cover Newton's Second Law, do not cram that separate idea into the same card:
+- Acceleration: explain what acceleration means and how it can appear in motion.
+- Acceleration Unit [type: definition]: explain the unit and what it measures.
+- Force and Acceleration: explain how net force and mass affect acceleration.
+
+These examples demonstrate the balance between useful explanation and focused cards. Adapt the structure to the actual source; do not copy these examples into unrelated subjects.
+
+TECHNICAL DEFINITIONS
+- When the material introduces a meaningful subject-specific technical term that a learner needs to understand, create a separate card defining it. Set type to "definition".
+- Give the card a clear title using the term itself and explain it in plain, concise language.
+- Connect the definition card to the concept where the term is used.
+- Do not create definition cards for ordinary words or terms whose meaning is already fully explained by an existing definition card.
+- A definition card's level indicates its place in the hierarchy; its type must remain "definition".
+
+HIERARCHY
+Every card must have a clear place in the mindmap.
+- Main cards represent major topics or central branches and have no parent connection.
+- Sub cards explain important concepts belonging to a main card. Every sub card must connect to its parent main card.
+- Detail cards provide focused supporting information belonging to a sub card. Every detail card must connect to its parent sub card.
+- Use only the levels "main", "sub", and "detail". Do not create extra hierarchy levels.
+- Definition cards may be sub or detail cards depending on where they belong.
+- Parent cards should introduce or summarize their branch. Child cards should add information rather than repeat it.
+
+Example hierarchy:
+Main: Forces and Motion
+  Sub: Newton's Laws
+    Detail: Newton's First Law
+    Detail: Newton's Second Law
+      Detail: Acceleration [type: definition]
+      Detail: Net Force [type: definition]
+  Sub: Types of Forces
+    Detail: Friction
+    Detail: Gravity
+
+This is illustrative, not a required number of branches. Choose the structure that fits the source.
+
+MEANINGFUL CONNECTIONS
+Use relatedTo for the exact titles of parent cards and any useful cross-links.
+
+Useful cross-links may show:
+- Cause and effect.
+- Prerequisites or concepts that help explain each other.
+- Shared mechanisms.
+- Meaningful comparisons.
+- Dependencies between stages, components, or results.
+- Applications of a principle.
+- Part-whole relationships.
+
+For example, Photosynthesis may connect to Cellular Respiration because of their relationship in energy and matter cycling. It may also connect to Light Source if that card exists, because light energy drives photosynthesis.
+
+Do not link cards merely because they discuss the same broad subject. A cross-link should help the learner understand a meaningful relationship.
+- Every sub card must include its parent main card.
+- Every detail card must include its parent sub card.
+- Additional cross-links are optional; include them only when useful.
+- Avoid duplicate connections and self-connections.
+- Do not add a main card as an extra parent to a detail card unless it is also a genuine, useful cross-link.
+
+ADAPT TO THE MATERIAL
+- Processes: represent meaningful stages as separate cards in logical order.
+- Classifications: create cards for important categories.
+- Comparisons: represent the concepts and their meaningful similarities or differences.
+- Theories: include the theory, its major ideas, and important supporting concepts.
+- Multiple topics: create distinct branches for distinct topics in the source.
+- Do not force a process, comparison, or classification structure when the source does not call for one.
+
+ACCURACY AND LANGUAGE
+- Use the provided material as the factual basis. Add only straightforward explanations needed to make the material understandable.
+- Do not invent facts, examples, claims, or relationships.
+- Preserve important formulas, units, conditions, and distinctions.
+- Use the same language as the source unless instructed otherwise.
+- Use clear, natural language suitable for a student.
+- Be concise without making explanations incomplete.
+- If the source is unclear or missing information, do not present unsupported claims as fact.
+
+OUTPUT
+Return valid JSON in this structure:
+{
+  "cards": [
+    {
+      "level": "main | sub | detail",
+      "type": "concept | definition | process | example | other suitable label",
+      "title": "Short, specific title",
+      "raw": "A clear explanation with enough detail to understand the idea",
+      "relatedTo": []
+    }
+  ]
+}
+
+Use exactly "main", "sub", or "detail" for level.
+Use meaningful type labels appropriate to each card's purpose.
+Every response must contain at least one main card. Main cards must have an empty relatedTo array.
+For every other card, relatedTo must contain the exact title of its parent card and any useful cross-linked cards.
+Do not include markdown fences or commentary outside the JSON.
+`;
+}
+
 // ─── Original categorizeTopics (long prompt untouched) ───────────────────────
 async function categorizeTopics(text, complexity = 3) {
 
   const response = await openai.chat.completions.create({
-    model: "gpt-5.4-mini-2026-03-17",
+    model: "gpt-6.1-sol",
     max_completion_tokens: complexity >= 4 ? 10000 : 6000,
     response_format: { type: "json_object" },
     messages: [
       {
         role: "system",
-        content: `You are a strict document-to-card converter.
-
-ADAPTIVE CARD COUNT:
-- Determine the appropriate number of cards from the topic's scope and learning requirements.
-- Use only as many cards as needed to explain the topic clearly and completely.
-- Simple topics should remain concise. Complex topics may require more cards.
-- Never add unnecessary cards to meet a minimum.
-- Never omit essential concepts just to meet a preferred card count.
-- Aim for a maximum of 55 cards, but prioritize essential coverage.
-- If the topic genuinely requires more than 55 cards, prioritize a coherent overview of the topic and its essential categories.
-
-LEARNING DESIGN:
-- Identify the essential concepts needed to understand the requested topic.
-- Introduce prerequisite concepts before concepts that depend on them.
-- Adapt the structure to the knowledge type:
-  - Concepts: definition, meaning, examples, and distinctions.
-  - Processes: stages in logical order and why they occur.
-  - Classifications: categories and their distinguishing features.
-  - Comparisons: similarities, differences, and practical implications.
-  - Complex theories: foundations, principles, mechanisms, and implications.
-- Do not force every topic into the same structure.
-- Explain technical terminology when it first becomes necessary.
-- Use cross-links only when they communicate a meaningful relationship.
-- Prioritize completeness, clarity, and logical organization over a fixed number of cards.
-
-COMPLEXITY CONTROL:
-
-The requested complexity level is ${complexity}, on a scale from 1 to 5. This level controls the depth, assumed knowledge, and precision of the explanation, NOT a fixed number of cards.
-
-- Level 1 — Absolute beginner: Explain foundational ideas using familiar language and concrete examples. Define necessary terminology. Avoid advanced details unless essential.
-- Level 2 — Beginner: Explain core concepts and important relationships. Introduce basic terminology with clear definitions.
-- Level 3 — Intermediate: Explain how concepts work, how their parts interact, and why important relationships exist. Include relevant technical terms.
-- Level 4 — Advanced: Include underlying mechanisms, important distinctions, assumptions, and meaningful exceptions. Use precise terminology and explain specialized concepts where needed.
-- Level 5 — Expert-oriented: Preserve technical precision. Include deeper mechanisms, nuanced relationships, significant limitations, and advanced distinctions relevant to the source or topic.
-
-Adapt the amount of detail in each card to the selected level. Higher complexity should deepen explanations and include more advanced concepts when relevant, rather than merely making sentences longer or adding unnecessary cards.
-
-Never invent advanced information to make a topic seem more complex. Maintain factual accuracy and logical progression at every level.
-
-STRICT RULES:
-- Most of your cards should be "sub" and "detail" level. Keep the number of "main" cards low.
-- Every card MUST add real value. Never repeat information.
-- When using technical terms, explain them.
-- Keep titles short and clear (2–5 words).
-- Use [[formula]]...[[/formula]] with proper LaTeX inside for any equations or formulas.
-- relatedTo rules:
-  - "main" cards have no relatedTo.
-  - "sub" cards must include their parent main in relatedTo. They can also link to 1-2 other relevant "sub" or "detail" cards from different branches.
-  - "detail" cards must include their parent "sub" in relatedTo. They should NOT link directly to "main" cards. They can link to 1-2 other relevant "detail" or "sub" cards.
-- If the topic involves a process or sequence, create one main card titled "How It Works" (or similar). Its sub cards should be steps in order ("Step 1: ...", etc.).
-- When a card covers something with multiple parts, each part MUST get its own sub or detail card.
-- Choose the language based on the input text.
-
-Return ONLY a valid JSON object with this exact structure:
-{
-  "cards": [ array of card objects ]
-}
-
-Each card object must have:
-- level: "main", "sub", or "detail"
-- type: short 1-word label, create types that correspond to the content. Avoid creating too many types. Increase its amount by little as complexity increases (1-7 types max).
-- title: 2-5 words
-- raw: 1-3 sentences (use [[formula]]...[[/formula]] for equations)
-- relatedTo: array of related card titles`
+        content: buildMindmapInstructions(complexity)
       },
       { role: "user", content: text.slice(0, 12000) },
     ],
@@ -300,47 +316,65 @@ Each card object must have:
 // ─── summarizeCards, trimConnections, enforceCardLimits (original) ───────────
 async function summarizeCards(topics, complexity = 3) {
   const summaryGuide = {
-    1: `Write 1-2 very plain sentences. Strip away all jargon. Absolute beginner level.`,
-    2: `Write 2 plain English sentences. Simple and clear, no jargon without explanation.`,
-    3: `Write 2-3 sentences. Cover the main idea and key parts. Include named components if there are multiple.`,
-    4: `Write 3 sentences. Be thorough — cover the main idea, important parts, how they relate, and why they matter.`,
-    5: `Write 3-4 sentences. Cover all named parts, how they relate, and key relationships. Be clear and reasonably detailed.`,
-  }[complexity] || `Write 2 plain English sentences.`;
+    1: `Use very plain language. Keep only the essential explanation, but do not make it so short that the idea becomes unclear.`,
+    2: `Use simple, clear language. Preserve the main idea and its important supporting details.`,
+    3: `Preserve the main idea, key details, and important relationships. Explain named components when they matter.`,
+    4: `Preserve the main idea, important components, how they relate, and why they matter. Keep useful mechanisms and distinctions.`,
+    5: `Preserve all important details and relationships supplied in the card. Do not compress a complex idea into a generic summary.`,
+  }[complexity] || `Use clear language and preserve the main idea and its important supporting details.`;
 
   const summaries = await Promise.all(
     topics.map(async (topic) => {
-      const hasFormula = (topic.raw || '').includes('[[formula]]');
+      const originalRaw = topic.raw || topic.summary || "";
+      const hasFormula = originalRaw.includes("[[formula]]");
 
       const response = await openai.chat.completions.create({
-        model: "gpt-5.4-mini-2026-03-17",
-        max_completion_tokens: complexity >= 4 ? 400 : 250,
+        model: "gpt-6.1-sol",
+        max_completion_tokens: complexity >= 4 ? 600 : 400,
         messages: [
           {
             role: "system",
-            content: `You explain things to someone with zero background knowledge.
+            content: `You are editing one educational mindmap card for a student.
+
+Your job is to clarify the card, not to aggressively summarize it or redesign the mindmap.
 ${summaryGuide}
 
-CRITICAL INSTRUCTIONS:
-- If the Context contains a [[formula]]...[[/formula]] block, you MUST copy that exact block (including the [[formula]] and [[/formula]] tags) into one of your sentences. Never remove it or rewrite the LaTeX.
-- Never output Unicode math symbols (like α, β, ∣0⟩, etc.). Always keep the original [[formula]] block.
-- Choose the language of the output based on the Context. If the Context is in English, write in English. If it's in another language, match that language. Do not use English if the Context is not in English.
+PRESERVE THE CONTENT:
+- Keep all important facts, steps, named components, conditions, examples, formulas, units, and distinctions already present in the context.
+- Do not add facts or examples that are not supported by the context.
+- Do not remove details merely to make the answer shorter.
+- Do not force a fixed sentence count or word count. Simple cards can be brief; complex cards may need several sentences.
+- Keep this card focused on its existing title and central idea. Do not pull in separate topics just because they appear in Related to.
+- Preserve the card's original meaning and level of detail. Make only changes that improve clarity, grammar, or readability.
+- If the context is already clear and useful, keep it substantially unchanged.
+- Do not repeat the title as a needless opening sentence.
+- Use clear language suitable for a student with little background knowledge.
+- Match the language of the context.
 
-Example of good output:
-"The qubit can be in a superposition of both states at once. This is written as [[formula]]\\alpha |0\\rangle + \\beta |1\\rangle[[/formula]] and the values of alpha and beta represent the probabilities."
+FORMULAS:
+- If the Context contains a [[formula]]...[[/formula]] block, copy that exact block, including both tags, into the output. Never remove it or rewrite its LaTeX.
+- Never output Unicode math symbols (such as α or ∣0⟩) in place of a formula block.
 
-Return only the sentences, no extra text.`,
+Example:
+Context: A qubit can be in a superposition of both states at once. This is written as [[formula]]\\alpha |0\\rangle + \\beta |1\\rangle[[/formula]]. Alpha and beta are probability amplitudes.
+Good output: A qubit can be in a superposition of both states at once. This is written as [[formula]]\\alpha |0\\rangle + \\beta |1\\rangle[[/formula]]. Alpha and beta are probability amplitudes.
+
+Return only the revised card explanation. Do not include a title, label, quotation marks, or extra commentary.`,
           },
           {
             role: "user",
-            content: `Topic: ${topic.title}\nContext: ${topic.raw}\nRelated to: ${Array.isArray(topic.relatedTo) ? topic.relatedTo.join(', ') : 'none'}`,
+            content: `Card title: ${topic.title}
+Card type: ${topic.type || "concept"}
+Context: ${originalRaw}
+Related to: ${Array.isArray(topic.relatedTo) ? topic.relatedTo.join(", ") : "none"}`,
           },
         ],
       });
 
-      let summary = response.choices[0].message.content.trim();
+      let summary = (response.choices[0].message.content || "").trim();
 
-      if (hasFormula && !summary.includes('[[formula]]')) {
-        summary = topic.raw;
+      if (!summary || (hasFormula && !summary.includes("[[formula]]"))) {
+        summary = originalRaw;
       }
 
       return {
@@ -348,7 +382,7 @@ Return only the sentences, no extra text.`,
         type: topic.type,
         title: topic.title,
         summary,
-        relatedTo: Array.isArray(topic.relatedTo) ? topic.relatedTo.slice(0, 2) : [],
+        relatedTo: Array.isArray(topic.relatedTo) ? topic.relatedTo : [],
       };
     })
   );

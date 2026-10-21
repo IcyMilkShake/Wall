@@ -3,6 +3,8 @@ const API = '/api';
 // ─── State ────────────────────────────────────────────────────────────────────
 let scale = 0.72, ox = 0, oy = 0;
 let dragging = false, sx, sy, sox, soy;
+let dragMoved = false;
+const DRAG_THRESHOLD = 4;
 let allCards = [];
 let cardPositions = {};   // title -> { x, y, w, h }
 let activeTypes = new Set();
@@ -59,17 +61,21 @@ function centerOnMain() {
 
 wrap.addEventListener('mousedown', e => {
   if (e.target === wrap || e.target === canvas || e.target.tagName === 'svg' || e.target.tagName === 'line') {
-    if (lockedTitle) clearFocus();
-    dragging = true; sx = e.clientX; sy = e.clientY; sox = ox; soy = oy;
+    dragging = true; dragMoved = false; sx = e.clientX; sy = e.clientY; sox = ox; soy = oy;
   }
 });
 window.addEventListener('mousemove', e => {
   if (!dragging) return;
+  if (!dragMoved && Math.hypot(e.clientX - sx, e.clientY - sy) < DRAG_THRESHOLD) return;
+  dragMoved = true;
   ox = sox + e.clientX - sx;
   oy = soy + e.clientY - sy;
   applyT();
 });
-window.addEventListener('mouseup', () => dragging = false);
+window.addEventListener('mouseup', () => {
+  if (dragging && !dragMoved && lockedTitle) clearFocus();
+  dragging = false;
+});
 wrap.addEventListener('wheel', e => {
   e.preventDefault();
   const rect = wrap.getBoundingClientRect();
@@ -90,14 +96,14 @@ wrap.addEventListener('wheel', e => {
 
 // ─── Touch support for mobile pan ─────────────────────────────────────────────
 let touchDragging = false;
+let touchMoved = false;
 let tsx, tsy, tsox, tsoy;
 
 wrap.addEventListener('touchstart', e => {
   if (e.touches.length === 1) {
     const t = e.touches[0];
     if (e.target === wrap || e.target === canvas || e.target.tagName === 'svg' || e.target.tagName === 'line') {
-      if (lockedTitle) clearFocus();
-      touchDragging = true;
+      touchDragging = true; touchMoved = false;
       tsx = t.clientX; tsy = t.clientY; tsox = ox; tsoy = oy;
       e.preventDefault();
     }
@@ -107,13 +113,21 @@ wrap.addEventListener('touchstart', e => {
 window.addEventListener('touchmove', e => {
   if (!touchDragging || e.touches.length !== 1) return;
   const t = e.touches[0];
+  if (!touchMoved && Math.hypot(t.clientX - tsx, t.clientY - tsy) < DRAG_THRESHOLD) {
+    e.preventDefault();
+    return;
+  }
+  touchMoved = true;
   ox = tsox + t.clientX - tsx;
   oy = tsoy + t.clientY - tsy;
   applyT();
   e.preventDefault();
 }, { passive: false });
 
-window.addEventListener('touchend', () => { touchDragging = false; });
+window.addEventListener('touchend', () => {
+  if (touchDragging && !touchMoved && lockedTitle) clearFocus();
+  touchDragging = false;
+});
 window.addEventListener('touchcancel', () => { touchDragging = false; });
 
 document.getElementById('reset-btn').onclick = () => { centerOnMain(); };
@@ -549,6 +563,7 @@ function renderWall(cards) {
   lockedTitle = null;
   hoveredTitle = null;
   wrap.classList.remove('is-focused');
+  wrap.classList.remove('is-locked');
   canvas.innerHTML = '';
   hint.style.display = 'none';
   cardPositions = {};
@@ -669,10 +684,11 @@ function applyFocus(title) {
   const color = TYPE_META[focusCard?.type]?.color || '#888780';
 
   wrap.classList.add('is-focused');
+  wrap.classList.toggle('is-locked', !!lockedTitle);
   document.querySelectorAll('.card').forEach(c => {
     const isSelf = c.dataset.title === title;
     const on = related.has(c.dataset.title);
-    c.style.opacity = on ? '1' : '0.34';
+    c.style.opacity = on ? '1' : (lockedTitle ? '0.1' : '0.34');
     c.style.transition = 'opacity 0.15s, box-shadow 0.15s';
     c.classList.toggle('is-focus', isSelf);
     c.classList.toggle('is-related', on && !isSelf);
@@ -688,6 +704,7 @@ function clearFocus() {
   hoveredTitle = null;
   lockedTitle = null;
   wrap.classList.remove('is-focused');
+  wrap.classList.remove('is-locked');
   document.querySelectorAll('.card').forEach(c => {
     c.style.opacity = c.dataset.level === 'detail' ? '0.92' : '1';
     c.style.boxShadow = '';

@@ -85,7 +85,9 @@ textarea#text-input:focus { outline: none; border-color: var(--text3); }
 .canvas-wrap {
   flex: 1; overflow: hidden; background: var(--bg2);
   position: relative; cursor: grab;
+  transition: background 0.2s ease;
 }
+.canvas-wrap.is-locked { background: #d3d1ce; }
 .canvas-wrap:active { cursor: grabbing; }
 .canvas { position: absolute; transform-origin: 0 0; z-index: 2; }
 
@@ -104,17 +106,57 @@ textarea#text-input:focus { outline: none; border-color: var(--text3); }
 
 /* ── Cards ── */
 .card {
-  position: absolute; width: 200px;
+  position: absolute;
+  width: 280px;
+  max-width: 320px;
+  min-width: 200px;
+  height: auto;
+  max-height: 65vh;
+  overflow-y: auto;
+
   background: var(--bg);
   border: 0.5px solid var(--border);
   border-radius: var(--radius);
   padding: 14px 16px;
   cursor: pointer;
   transition: border-color 0.15s, transform 0.1s;
+
+  overflow-wrap: anywhere;
 }
+
 .card:hover { border-color: var(--border2); }
 .card.is-focus { z-index: 6; }
 .card.is-related { z-index: 5; }
+
+/* Keep skeletons consistent with the actual cards */
+.skeleton {
+  position: absolute;
+  width: 280px;
+  max-width: 320px;
+  min-width: 240px;
+  max-height: 65vh;
+  overflow: hidden;
+
+  background: var(--bg2);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 13px 15px;
+}
+
+/* Mobile: use the available canvas width */
+@media (max-width: 768px) {
+  .card {
+    width: 250px;
+    min-width: 220px;
+    max-width: 280px;
+  }
+
+  .skeleton {
+    width: 250px;
+    min-width: 220px;
+    max-width: 280px;
+  }
+}
 .card-type {
   font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
   text-transform: uppercase; margin-bottom: 5px;
