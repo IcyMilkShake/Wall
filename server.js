@@ -316,59 +316,131 @@ async function categorizeTopics(text, complexity = 3) {
 // ─── summarizeCards, trimConnections, enforceCardLimits (original) ───────────
 async function summarizeCards(topics, complexity = 3) {
   const summaryGuide = {
-    1: `Use very plain language. Keep only the essential explanation, but do not make it so short that the idea becomes unclear.`,
-    2: `Use simple, clear language. Preserve the main idea and its important supporting details.`,
-    3: `Preserve the main idea, key details, and important relationships. Explain named components when they matter.`,
-    4: `Preserve the main idea, important components, how they relate, and why they matter. Keep useful mechanisms and distinctions.`,
-    5: `Preserve all important details and relationships supplied in the card. Do not compress a complex idea into a generic summary.`,
-  }[complexity] || `Use clear language and preserve the main idea and its important supporting details.`;
+    1: `DEPTH 1: Include only the central idea. Use 1-2 short, simple sentences.`,
+    2: `DEPTH 2: Include the central idea and one useful clarifying detail. Use 1-2 sentences.`,
+    3: `DEPTH 3: Explain the central idea and its key supporting concept or distinction. Explain necessary technical terms in plain words. Use around 2-3 sentences.`,
+    4: `DEPTH 4: Include depth 3 plus an important explanation of how, why, or under what conditions the idea works. Use around 2-4 sentences.`,
+    5: `DEPTH 5: Give the fullest useful explanation of THIS card, including important mechanisms, conditions, and distinctions that belong to it. Stay concise; do not absorb other cards' content. Use around 3-5 sentences.`
+  }[complexity] || `Explain the central idea clearly and preserve its important supporting details.`;
+
+  // Give every summary call the same complete map context.
+  // Keep original explanations so the model can distinguish overlapping topics.
+  const mindmapContext = topics.map((card, index) => ({
+    index,
+    level: card.level || "sub",
+    type: card.type || "concept",
+    title: card.title || "Untitled",
+    originalContent: card.raw || card.summary || "",
+    relatedTo: Array.isArray(card.relatedTo) ? card.relatedTo : []
+  }));
+
+  const mapContextText = JSON.stringify(mindmapContext, null, 2);
 
   const summaries = await Promise.all(
-    topics.map(async (topic) => {
+    topics.map(async (topic, index) => {
       const originalRaw = topic.raw || topic.summary || "";
       const hasFormula = originalRaw.includes("[[formula]]");
 
       const response = await openai.chat.completions.create({
         model: "gpt-6.1-sol",
-        max_completion_tokens: complexity >= 4 ? 600 : 400,
+        max_completion_tokens: complexity >= 4 ? 700 : 450,
         messages: [
           {
             role: "system",
-            content: `You are editing one educational mindmap card for a student.
+            content: `You are an educational mindmap editor. You receive the WHOLE mindmap so you can understand how every card fits together. You must rewrite ONLY the designated target card.
 
-Your job is to clarify the card, not to aggressively summarize it or redesign the mindmap.
+REQUESTED COMPLEXITY:
 ${summaryGuide}
 
-PRESERVE THE CONTENT:
-- Keep all important facts, steps, named components, conditions, examples, formulas, units, and distinctions already present in the context.
-- Do not add facts or examples that are not supported by the context.
-- Do not remove details merely to make the answer shorter.
-- Do not force a fixed sentence count or word count. Simple cards can be brief; complex cards may need several sentences.
-- Keep this card focused on its existing title and central idea. Do not pull in separate topics just because they appear in Related to.
-- Preserve the card's original meaning and level of detail. Make only changes that improve clarity, grammar, or readability.
-- If the context is already clear and useful, keep it substantially unchanged.
-- Do not repeat the title as a needless opening sentence.
-- Use clear language suitable for a student with little background knowledge.
-- Match the language of the context.
+COMPLEXITY IS CONCEPTUAL DEPTH:
+- Complexity controls how much useful understanding this card contains, not how many unrelated topics it covers.
+- At lower levels, preserve only the central idea and omit deeper details.
+- At higher levels, explain more of the target idea's important meaning, conditions, mechanisms, or distinctions.
+- Higher complexity must NOT cause this card to explain its children, siblings, or the entire subject.
+- Use the requested level consistently. Do not default every level to the same generic summary.
+
+CARD ROLES — FOLLOW THESE STRICTLY:
+
+1. MAIN CARD:
+- Introduce the overall subject and give the reader a brief mental picture of what it is about.
+- Explain its general purpose, central theme, or why the subject matters, when supported by the source.
+- If the subject is a theory or set of laws, briefly introduce what the theory or laws are intended to explain.
+- Do NOT explain each child topic individually.
+- Do NOT list or summarize all the subtopics that will be explained in separate cards.
+- For example, a main card titled "Newton's Laws of Motion" should briefly introduce that these are laws describing how forces relate to motion. It should NOT explain Newton's First, Second, and Third Laws one by one.
+- Keep the main card introductory and compact at every complexity level. More complexity may improve the introduction, but must not turn it into a summary of the entire mindmap.
+
+2. SUB CARD:
+- Explain the major idea represented by this branch.
+- Include enough context to make the idea understandable on its own.
+- Do NOT repeat the overall introduction from the main card.
+- Do NOT explain all of its own child cards in detail.
+
+3. DETAIL CARD:
+- Explain the specific concept, term, mechanism, step, condition, or example named by this card.
+- Be specific about that one idea rather than repeating the whole parent explanation.
+- Include a definition or example only when relevant and supported by the source.
+
+WHOLE-MINDMAP AWARENESS:
+- Read the entire mindmap context before writing the target card.
+- Identify the target card's parent, children, siblings, and related cards by their titles and relationships.
+- Use this context to decide what belongs in this card and what should be explained elsewhere.
+- The whole map is context for understanding, NOT content to copy into the target summary.
+- Do not merge cards, rename them, create new cards, or change their relationships.
+- Avoid duplication: each card should contribute distinct information to the overall mindmap.
+- A parent can briefly introduce a concept that its children explain in depth, but it must not reproduce those explanations.
+- Related cards may clarify the target's role, but do not pull their separate subject matter into this summary.
+- If a card's original content contains information that clearly belongs to another card, prioritize the target card's own purpose and avoid duplicating the other card. Do not invent replacement facts.
+
+SOURCE ACCURACY:
+- Use the original content and full map as context. Do not invent facts, examples, or relationships.
+- Preserve important conditions, distinctions, formulas, units, and steps that belong to the target card.
+- If information is not supported by the source, leave it out.
+- Do not silently change the meaning of the original material.
+- Match the language of the source.
+
+WRITING:
+- Use simple, natural language suitable for a student with little background knowledge.
+- Prefer common words and clear explanations over unnecessarily advanced vocabulary.
+- Explain necessary technical terms in plain language when first introduced.
+- Avoid filler, repeated points, and textbook-style paragraphs.
+- Do not repeat the title as a needless opening.
+- Do not force a sentence count if doing so makes the explanation unclear, but respect the intended depth.
 
 FORMULAS:
-- If the Context contains a [[formula]]...[[/formula]] block, copy that exact block, including both tags, into the output. Never remove it or rewrite its LaTeX.
-- Never output Unicode math symbols (such as α or ∣0⟩) in place of a formula block.
+- If the target card contains a [[formula]]...[[/formula]] block, copy that exact block into the output.
+- Never remove or rewrite its LaTeX.
+- Never replace a formula block with Unicode math symbols.
 
-Example:
-Context: A qubit can be in a superposition of both states at once. This is written as [[formula]]\\alpha |0\\rangle + \\beta |1\\rangle[[/formula]]. Alpha and beta are probability amplitudes.
-Good output: A qubit can be in a superposition of both states at once. This is written as [[formula]]\\alpha |0\\rangle + \\beta |1\\rangle[[/formula]]. Alpha and beta are probability amplitudes.
+FINAL CHECK BEFORE ANSWERING:
+1. Am I explaining only the target card?
+2. Does the content match its main, sub, or detail role?
+3. Am I repeating information that belongs in a child or sibling card?
+4. Does the explanation match the requested complexity?
+5. Did I preserve source-supported facts and formula blocks?
 
-Return only the revised card explanation. Do not include a title, label, quotation marks, or extra commentary.`,
+Return only the revised explanation. No title, label, quotation marks, or commentary.`
           },
           {
             role: "user",
-            content: `Card title: ${topic.title}
-Card type: ${topic.type || "concept"}
-Context: ${originalRaw}
-Related to: ${Array.isArray(topic.relatedTo) ? topic.relatedTo.join(", ") : "none"}`,
-          },
-        ],
+            content: `WHOLE MINDMAP CONTEXT:
+${mapContextText}
+
+TARGET CARD INDEX: ${index}
+
+TARGET CARD TO REWRITE:
+Title: ${topic.title}
+Level: ${topic.level || "sub"}
+Type: ${topic.type || "concept"}
+Original explanation:
+${originalRaw}
+
+Related card titles:
+${Array.isArray(topic.relatedTo) ? topic.relatedTo.join(", ") : "none"}
+
+Rewrite ONLY this target card. Use the whole map to understand its role, but do not summarize the other cards.`
+          }
+        ]
       });
 
       let summary = (response.choices[0].message.content || "").trim();
@@ -378,17 +450,18 @@ Related to: ${Array.isArray(topic.relatedTo) ? topic.relatedTo.join(", ") : "non
       }
 
       return {
-        level: topic.level,
-        type: topic.type,
-        title: topic.title,
+        level: topic.level || "sub",
+        type: topic.type || "concept",
+        title: topic.title || "Untitled",
         summary,
-        relatedTo: Array.isArray(topic.relatedTo) ? topic.relatedTo : [],
+        relatedTo: Array.isArray(topic.relatedTo) ? topic.relatedTo : []
       };
     })
   );
 
   return summaries;
 }
+
 
 function trimConnections(cards) {
   const titleSet = new Set(cards.map(c => c.title));

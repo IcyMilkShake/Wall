@@ -1,5 +1,16 @@
 const API = '/api';
 
+// Retries once if the connection was dead (first request after a long idle fails before reaching the server)
+async function fetchWithRetry(url, options) {
+  try {
+    return await fetch(url, options);
+  } catch (err) {
+    if (!(err instanceof TypeError)) throw err;
+    await new Promise(r => setTimeout(r, 300));
+    return await fetch(url, options);
+  }
+}
+
 // ─── State ────────────────────────────────────────────────────────────────────
 let scale = 0.72, ox = 0, oy = 0;
 let dragging = false, sx, sy, sox, soy;
@@ -353,7 +364,7 @@ function scatterPositions(cards) {
   Object.entries(subsByParent).forEach(([parentTitle, group]) => {
     const pc = posMap[parentTitle] || { cx: 200, cy: CY_BASE };
     const count = group.length;
-    const baseRadius = 420 + count * 45;
+    const baseRadius = 600 + count * 45;
     const arcSpread = Math.PI * 2;
 
     // Random starting angle so the pattern doesn't always align to axes
@@ -774,7 +785,7 @@ genBtn.addEventListener('click', async () => {
   showLoading('Generating your wall…');
   showSkeletons();
   try {
-    const res = await fetch(`${API}/generate`, {
+    const res = await fetchWithRetry(`${API}/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, complexity: +complexitySlider.value }),
@@ -809,7 +820,7 @@ pdfInput.addEventListener('change', async () => {
   formData.append('pdf', file);
   formData.append('complexity', complexitySlider.value);
   try {
-    const res = await fetch(`${API}/upload`, { method: 'POST', body: formData });
+    const res = await fetchWithRetry(`${API}/upload`, { method: 'POST', body: formData });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
     allCards = data.cards;
